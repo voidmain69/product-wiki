@@ -17,7 +17,8 @@
     "@wiki/storage": "workspace:*",
     "drizzle-orm": "^0.36.0",
     "ioredis": "^5.4.1",
-    "playwright": "^1.48.0"
+    "playwright": "^1.48.0",
+    "undici": "^6.19.0"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

@@ -29,6 +29,12 @@ describe("detectEngine — вибір рушія за дешевим зонду�
     expect(hint.confidence).toBeGreaterThanOrEqual(0.9);
   });
 
+  it("JSON-LD з тонким body → static (структуровані дані > обсяг тексту)", () => {
+    // реальний кейс SSR-сторінки виробника: повний JSON-LD, мінімум видимого тексту
+    const html = `<html><body><h1>X</h1><script type="application/ld+json">{"@type":"Product"}</script></body></html>`;
+    expect(detectEngine(probe({ htmlSample: html })).engine).toBe("static");
+  });
+
   it("порожній React-root → headless (потрібен рендер)", () => {
     const html = `<html><body><div id="root"></div></body></html>`;
     const hint = detectEngine(probe({ htmlSample: html }));

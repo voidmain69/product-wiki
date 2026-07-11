@@ -39,12 +39,14 @@ export function detectEngine(probe: ProbeData): DetectionHint {
   const hasStructured = STRUCTURED_MARKERS.some((r) => r.test(html));
   const looksSpa = SPA_MARKERS.some((r) => r.test(html));
 
-  // Є JSON-LD/мікродані у первинному HTML → static вистачить (найдешевше).
-  if (hasStructured && !isEmptyBody(html)) {
+  // Є JSON-LD/мікродані у первинному HTML → рендер НЕ потрібен, static (найдешевше).
+  // Наявність структурованих даних важливіша за обсяг видимого тексту: тонкий
+  // SSR-body з повним JSON-LD Product — ідеальний static-кейс.
+  if (hasStructured) {
     return { engine: "static", confidence: 0.9, reason: "structured data in initial HTML" };
   }
 
-  // Порожній контейнер SPA або відомі маркери → потрібен рендер.
+  // Без структурованих даних: порожній контейнер SPA або маркери → потрібен рендер.
   if (looksSpa || isEmptyBody(html)) {
     return { engine: "headless", confidence: 0.75, reason: "SPA markers / empty body" };
   }

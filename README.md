@@ -62,6 +62,21 @@ pnpm dev
 
 Відкрити http://localhost:3000 — чат. API — http://localhost:3001.
 
+## Локальний E2E ingest (без зовнішньої мережі й LLM)
+
+Доводить наскрізний потік `source → canonical product з provenance` на детермінованому
+JSON-LD-шляху проти живої інфраструктури. Піднімає локальний fixture-сайт «виробника»,
+запускає воркери ingest і чекає канонічні товари:
+
+```bash
+pnpm infra:up && pnpm db:migrate && pnpm db:seed
+pnpm smoke:ingest
+```
+
+Очікуваний результат — 2 канонічні товари, кожен атрибут нормалізований до SI і
+посилається на URL сторінки виробника (provenance). Індексацію (Qdrant) цей прогін
+не виконує — вона потребує ML-сервісу.
+
 ## Ключові архітектурні рішення
 
 | Вимога | Рішення |
@@ -78,8 +93,10 @@ pnpm dev
 ```bash
 pnpm build        # turbo build усього
 pnpm typecheck    # перевірка типів
+pnpm test         # vitest — юніт-тести чистої логіки
 pnpm check:arch   # гвард архітектурних меж (scripts/check-arch.mjs)
 pnpm lint         # eslint
+pnpm smoke:ingest # локальний E2E ingest проти живої інфраструктури
 pnpm infra:down   # зупинити інфраструктуру
 
 node scripts/new-service.mjs <name> "<опис>" <in> <out>   # новий воркер за шаблоном

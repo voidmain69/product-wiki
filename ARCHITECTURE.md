@@ -410,6 +410,12 @@ sequenceDiagram
 **Фаза 1 — MVP (вертикальний зріз, 1–2 категорії, ~10 виробників):**
 монорепо-скелет, contracts, Postgres+NATS+Qdrant+MinIO у compose; Static+Headless адаптери; extraction JSON-LD + LLM-fallback; базова нормалізація; індексація overview+spec чанків; чат: info + recommend з цитатами.
 
+> **Стан:** ingest-половина працює наскрізь і перевірена E2E (`pnpm smoke:ingest`):
+> `source → discovery → fetcher (robots.txt) → extractor (JSON-LD) → normalizer (SI) →
+> resolver → canonical product з provenance`. Юніт-тести чистої логіки (vitest).
+> Лишається до повного MVP: індексація в Qdrant (потребує ML-сервісу BGE-M3),
+> LLM-fallback екстракції на реальних сайтах, чат info/recommend наживо.
+
 **Фаза 2 — Достовірність і порівняння:**
 entity resolution + версіонування; онтологія атрибутів + compare-intent з детермінованим diff; merge queue UI; faithfulness-метрики; SSR-сторінки товарів.
 
