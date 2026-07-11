@@ -85,8 +85,10 @@ async function main() {
           });
         }
 
-        // append-only revision — денормалізований знімок канонічної сутності
+        // append-only revision — денормалізований знімок канонічної сутності.
+        // categoryPath беремо з крихт джерела (draft), доки нема власної таксономії.
         const snapshot = await buildSnapshot(tx, productId);
+        snapshot.categoryPath = (draft.categoryRaw as string[]) ?? [];
         const [rev] = await tx
           .insert(productRevisions)
           .values({ productId, snapshot })
@@ -173,7 +175,7 @@ async function buildSnapshot(tx: DbOrTx, productId: string) {
     id: productId,
     brand: p?.brand,
     name: p?.name,
-    categoryPath: [],
+    categoryPath: [] as string[],
     attributes: attrs.map((a) => ({
       key: a.attrKey,
       valueCanonical: a.valueCanonical,
