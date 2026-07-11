@@ -16,6 +16,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/migrations/**",
       "**/.venv/**", // python venv (vendored JS у site-packages)
+      "**/next-env.d.ts", // згенерований Next.js
     ],
   },
   {

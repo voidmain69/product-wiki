@@ -8,6 +8,7 @@ import { MlClient, QdrantIndex } from "@wiki/retrieval";
 import { runChat } from "@wiki/chat-orchestrator";
 import { ChatRequest, type ChatStreamEvent } from "@wiki/contracts";
 import { SessionStore } from "./session.js";
+import { registerProductRoutes } from "./routes/products.js";
 
 /**
  * Публічний API. Головний endpoint — POST /chat зі стрімінгом відповіді через SSE.
@@ -31,6 +32,7 @@ async function main() {
   const sessions = new SessionStore();
 
   app.get("/health", async () => ({ ok: true }));
+  await registerProductRoutes(app);
 
   app.post("/chat", async (req, reply) => {
     const parsed = ChatRequest.safeParse(req.body);

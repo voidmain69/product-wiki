@@ -60,7 +60,9 @@ cd services/ml && uv sync && uv run uvicorn app:app --port 8080
 pnpm dev
 ```
 
-Відкрити http://localhost:3000 — чат. API — http://localhost:3001.
+Відкрити http://localhost:3000 — чат (стрімінг, картки-посилання, цитати-джерела).
+`/products` — SSR-каталог, `/products/[id]` — сторінка товару («вікіпедія»):
+характеристики з provenance-посиланнями на сайт виробника. API — http://localhost:3001.
 
 ## Локальний E2E ingest (без зовнішньої мережі й LLM)
 

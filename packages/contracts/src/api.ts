@@ -82,6 +82,41 @@ export const ComparisonTable = z.object({
 });
 export type ComparisonTable = z.infer<typeof ComparisonTable>;
 
+/* ── Product REST DTO (для SSR-сторінок «вікіпедії» та списку) ──────────── */
+
+export const ProductListItem = z.object({
+  productId: Id,
+  brand: z.string(),
+  name: z.string(),
+  categoryPath: z.array(z.string()),
+  keySpecs: z.array(z.object({ label: z.string(), value: z.string() })),
+});
+export type ProductListItem = z.infer<typeof ProductListItem>;
+
+/** Атрибут з provenance — кожна цифра знає своє першоджерело (інваріант 5). */
+export const ProductDetailAttribute = z.object({
+  key: z.string(),
+  label: z.string(),
+  value: z.string(),
+  unit: z.string().nullable(),
+  sourceUrl: z.string().url(),
+  snapshotDate: z.string(),
+});
+
+export const ProductDetail = z.object({
+  productId: Id,
+  brand: z.string(),
+  name: z.string(),
+  mpn: z.string().nullable(),
+  gtin: z.string().nullable(),
+  categoryPath: z.array(z.string()),
+  updatedAt: z.string(),
+  attributes: z.array(ProductDetailAttribute),
+  texts: z.array(z.object({ section: z.string(), text: z.string(), sourceUrl: z.string().url() })),
+  sources: z.array(z.object({ url: z.string().url(), fetchedAt: z.string() })),
+});
+export type ProductDetail = z.infer<typeof ProductDetail>;
+
 /* ── Retrieval (внутрішній контракт orchestrator ↔ retrieval) ──────────── */
 
 export const RetrievalFilters = z.object({
