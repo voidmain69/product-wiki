@@ -31,6 +31,7 @@
     "@wiki/contracts": "workspace:*",
     "@wiki/db": "workspace:*",
     "@wiki/events": "workspace:*",
+    "@wiki/retrieval": "workspace:*",
     "eslint": "^9.14.0",
     "prettier": "^3.3.3",
     "rimraf": "^6.0.1",

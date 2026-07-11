@@ -74,8 +74,18 @@ pnpm smoke:ingest
 ```
 
 Очікуваний результат — 2 канонічні товари, кожен атрибут нормалізований до SI і
-посилається на URL сторінки виробника (provenance). Індексацію (Qdrant) цей прогін
-не виконує — вона потребує ML-сервісу.
+посилається на URL сторінки виробника (provenance).
+
+Якщо запущено ML-сервіс (достатньо dev-режиму, без GPU), той самий прогін додатково
+**індексує чанки в Qdrant і перевіряє retrieval** (гібридний dense+sparse RRF):
+
+```bash
+# окремий термінал: легкий ML-сервіс (лексичні ембединги, без torch)
+cd services/ml && python -m venv .venv && ./.venv/Scripts/pip install -e .
+ML_DEV_MODE=1 ./.venv/Scripts/python -m uvicorn app:app --port 8091
+# потім:
+pnpm smoke:ingest   # тепер: ingest → index → retrieve, з перевіркою релевантності
+```
 
 ## Ключові архітектурні рішення
 
