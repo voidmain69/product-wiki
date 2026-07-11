@@ -44,6 +44,16 @@ describe("fromJsonLd — детермінований рівень екстра�
     expect(draft!.gtin).toBe("4820000999999");
   });
 
+  it("реальна розмітка (Logitech): mpn з вкладеного model[], не топ-рівня", () => {
+    // регресія на реальний кейс: виробники кладуть ідентифікатори в model[]/offers[]
+    const draft = fromJsonLd(fixture("product-real-logitech.html"));
+    expect(draft).not.toBeNull();
+    expect(draft!.name).toContain("MX Master 3S");
+    expect(draft!.brand).toBe("Logitech");
+    expect(draft!.mpn).toBe("910-007500"); // з model[0].mpn
+    expect(draft!.media.length).toBeGreaterThan(0);
+  });
+
   it("повертає null, коли на сторінці немає Product", () => {
     expect(fromJsonLd("<html><body><h1>Про компанію</h1></body></html>")).toBeNull();
   });

@@ -1,0 +1,8 @@
+{
+  "name": "Logitech",
+  "domains": ["www.logitech.com", "logitech.com"],
+  "entrypoints": ["https://www.logitech.com/sitemap_index.xml"],
+  "urlPatterns": ["/products/"],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30
+}

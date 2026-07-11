@@ -23,7 +23,8 @@
     "db:generate": "pnpm --filter @wiki/db generate",
     "db:migrate": "pnpm --filter @wiki/db migrate",
     "db:seed": "pnpm --filter @wiki/db seed",
-    "smoke:ingest": "tsx scripts/smoke-ingest.ts"
+    "smoke:ingest": "tsx scripts/smoke-ingest.ts",
+    "smoke:real": "tsx scripts/smoke-real.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
