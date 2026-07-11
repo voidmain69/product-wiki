@@ -22,6 +22,9 @@ import { sql, isNotNull, eq } from "drizzle-orm";
 import { createDb, products, productAttributes, pageSnapshots, productDrafts, sources, crawlTasks } from "@wiki/db";
 import { EventBus } from "@wiki/events";
 import { MlClient, QdrantIndex, COLLECTION } from "@wiki/retrieval";
+import { createLLM } from "@wiki/llm";
+import { runChat } from "@wiki/chat-orchestrator";
+import type { ChatStreamEvent } from "@wiki/contracts";
 // @ts-expect-error — .mjs без типів (fixture лишається plain-JS для standalone-запуску)
 import { startFixtureServer, FIXTURE_BRAND, FIXTURE_PRODUCT_COUNT } from "./fixture-server.mjs";
 
@@ -198,6 +201,29 @@ async function main() {
       if (!top || top.productId !== expected?.id) {
         throw new Error(`retrieval expected RoboVac X40 (${expected?.id}), got ${top?.productId}`);
       }
+
+      // 8. Чат: intent → retrieval → rerank → відповідь з цитатами [n] (dev LLM)
+      const chatDeps = { db, llm: createLLM(), qdrant, ml: new MlClient() };
+      const events: ChatStreamEvent[] = [];
+      for await (const ev of runChat(chatDeps, {
+        sessionId: "smoke",
+        message: "Порадь тихий робот-пилосос для невеликої квартири",
+        history: [],
+      })) {
+        events.push(ev);
+      }
+      const types = new Set(events.map((e) => e.type));
+      const answer = events.filter((e) => e.type === "token").map((e) => (e as { text: string }).text).join("");
+      const cards = events.filter((e) => e.type === "product_card").length;
+      const cites = events.filter((e) => e.type === "citation").length;
+      const intentEv = events.find((e) => e.type === "intent") as { intent: string } | undefined;
+
+      console.log("\n✓ Чат (SSE-потік):");
+      console.log(`  intent=${intentEv?.intent} cards=${cards} citations=${cites} answerLen=${answer.length}`);
+      console.log(`  відповідь: ${answer.slice(0, 160)}`);
+      const okChat =
+        types.has("intent") && types.has("done") && cards >= 1 && cites >= 1 && /\[\d+\]/.test(answer);
+      if (!okChat) throw new Error(`chat stream incomplete: intent=${intentEv?.intent} cards=${cards} cites=${cites}`);
     }
 
     ok = true;
@@ -207,7 +233,7 @@ async function main() {
     await bus.drain().catch(() => void 0);
   }
 
-  console.log(ok ? "\n✓ SMOKE PASS — ingest працює наскрізь" : "\n✗ SMOKE FAIL");
+  console.log(ok ? "\n✓ SMOKE PASS — пайплайн наскрізь (ingest → index → retrieve → chat)" : "\n✗ SMOKE FAIL");
   process.exit(ok ? 0 : 1);
 }
 

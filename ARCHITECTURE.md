@@ -410,11 +410,15 @@ sequenceDiagram
 **Фаза 1 — MVP (вертикальний зріз, 1–2 категорії, ~10 виробників):**
 монорепо-скелет, contracts, Postgres+NATS+Qdrant+MinIO у compose; Static+Headless адаптери; extraction JSON-LD + LLM-fallback; базова нормалізація; індексація overview+spec чанків; чат: info + recommend з цитатами.
 
-> **Стан:** ingest-половина працює наскрізь і перевірена E2E (`pnpm smoke:ingest`):
+> **Стан:** бекенд працює наскрізь і перевірений E2E (`pnpm smoke:ingest`):
 > `source → discovery → fetcher (robots.txt) → extractor (JSON-LD) → normalizer (SI) →
-> resolver → canonical product з provenance`. Юніт-тести чистої логіки (vitest).
-> Лишається до повного MVP: індексація в Qdrant (потребує ML-сервісу BGE-M3),
-> LLM-fallback екстракції на реальних сайтах, чат info/recommend наживо.
+> resolver (provenance) → indexer → Qdrant → hybrid retrieval (RRF) → chat (intent →
+> rerank → відповідь з цитатами [n])`. Чат-SSE перевірено і через `apps/api` (`POST /chat`).
+> Юніт-тести чистої логіки (vitest, 47). Dev-режими без GPU/LLM: `ML_DEV_MODE=1`
+> (лексичні ембединги), `LLM_DEV_MODE=1` (детермінований провайдер) — реальні
+> BGE-M3/LLM вмикаються заміною конфігу.
+> Лишається до повного MVP: реальні BGE-M3 + LLM на GPU-хості; LLM-fallback
+> екстракції на сайтах без JSON-LD; compare-UI; SSR-сторінки товарів.
 
 **Фаза 2 — Достовірність і порівняння:**
 entity resolution + версіонування; онтологія атрибутів + compare-intent з детермінованим diff; merge queue UI; faithfulness-метрики; SSR-сторінки товарів.
