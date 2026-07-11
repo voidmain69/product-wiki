@@ -1,0 +1,48 @@
+import type { z } from "zod";
+
+export interface ChatTurn {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface GenerateOptions {
+  temperature?: number;
+  maxTokens?: number;
+  stop?: string[];
+}
+
+/**
+ * Абстракція над LLM — провайдер конфігурується (local vLLM/ollama, Anthropic,
+ * OpenAI-compatible), а не зашивається. Сервіси залежать лише від цього інтерфейсу.
+ */
+export interface LLMProvider {
+  readonly model: string;
+
+  /** Звичайна генерація. */
+  generate(messages: ChatTurn[], opts?: GenerateOptions): Promise<string>;
+
+  /** Стрімінг токенів (для чат-відповідей через SSE). */
+  stream(messages: ChatTurn[], opts?: GenerateOptions): AsyncIterable<string>;
+
+  /**
+   * Структурований вихід зі схемою — модель зобов'язана повернути валідний JSON.
+   * Валідація zod'ом з ретраєм на невідповідність (реалізується в провайдері).
+   */
+  generateStructured<T>(messages: ChatTurn[], schema: z.ZodType<T>, opts?: GenerateOptions): Promise<T>;
+}
+
+export interface LLMConfig {
+  provider: "local" | "anthropic" | "openai-compatible";
+  baseUrl?: string;
+  apiKey?: string;
+  model: string;
+}
+
+export function llmConfigFromEnv(): LLMConfig {
+  return {
+    provider: (process.env.LLM_PROVIDER as LLMConfig["provider"]) ?? "local",
+    baseUrl: process.env.LLM_BASE_URL,
+    apiKey: process.env.LLM_API_KEY,
+    model: process.env.LLM_MODEL ?? "qwen2.5-14b-instruct",
+  };
+}

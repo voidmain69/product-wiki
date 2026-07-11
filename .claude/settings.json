@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/check-arch.mjs*)",
+      "Bash(node scripts/new-service.mjs*)",
+      "Bash(pnpm typecheck*)",
+      "Bash(pnpm check:arch*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm test*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/check-arch.mjs --quiet",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

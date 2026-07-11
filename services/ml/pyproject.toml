@@ -1,0 +1,14 @@
+[project]
+name = "wiki-ml"
+version = "0.1.0"
+description = "Embedding (BGE-M3) + rerank (bge-reranker-v2-m3) inference service"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "FlagEmbedding>=1.3.0",
+    "pydantic>=2.0",
+]
+
+[tool.uv]
+dev-dependencies = ["ruff>=0.6"]
