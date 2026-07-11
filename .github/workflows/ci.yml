@@ -43,6 +43,8 @@ jobs:
         run: pnpm typecheck
       - name: Lint
         run: pnpm lint
+      - name: Unit tests
+        run: pnpm test
 
   # Python ML-сервіс: синтаксис + компіляція (повний lint — Фаза 2)
   ml-service:

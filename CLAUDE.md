@@ -12,11 +12,16 @@ pnpm infra:up / infra:down   # dev-інфраструктура (postgres, nats,
 pnpm db:generate && pnpm db:migrate && pnpm db:seed
 pnpm dev                     # всі воркери + api + web (turbo)
 pnpm typecheck               # перевірка типів усіх пакетів
+pnpm test                    # vitest — юніт-тести чистої логіки (колокуються як *.test.ts)
 pnpm check:arch              # ГВАРД АРХІТЕКТУРИ — запускати після будь-яких змін імпортів
 pnpm lint                    # eslint
 node scripts/new-service.mjs <name> "<опис>" <subject-in> <subject-out>   # новий воркер
+pnpm --filter @wiki/api register-source <abs-path-to-source.json>         # реєстрація джерела
 cd services/ml && uv run uvicorn app:app --port 8080                      # ML-сервіс (Python)
 ```
+
+> Порти інфраструктури конфігуруються через `*_PORT` у `.env` (compose читає `--env-file .env`);
+> зсувай лише за конфлікту портів і синхронно онови відповідні `*_URL`.
 
 ## Карта монорепо
 
