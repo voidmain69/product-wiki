@@ -9,7 +9,15 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["**/dist/**", "**/.next/**", "**/.turbo/**", "**/node_modules/**", "**/migrations/**"],
+    ignores: [
+      "**/dist/**",
+      "**/.next/**",
+      "**/.turbo/**",
+      "**/node_modules/**",
+      "**/migrations/**",
+      "**/.venv/**", // python venv (vendored JS у site-packages)
+      "**/next-env.d.ts", // згенерований Next.js
+    ],
   },
   {
     files: ["**/*.{ts,tsx,mts}"],

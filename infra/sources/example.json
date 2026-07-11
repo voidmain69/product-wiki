@@ -1,0 +1,8 @@
+{
+  "name": "ExampleTech",
+  "domains": ["example-manufacturer.com"],
+  "entrypoints": ["https://example-manufacturer.com/sitemap.xml"],
+  "urlPatterns": ["/products/[^/]+$"],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30
+}

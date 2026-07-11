@@ -7,6 +7,7 @@ import { AdapterRegistry } from "@wiki/engine-adapters";
 import { ObjectStore } from "@wiki/storage";
 import type { EventOf } from "@wiki/contracts/events";
 import { DomainRateLimiter } from "./rate-limiter.js";
+import { RobotsGate } from "./robots.js";
 
 /**
  * Fetcher-воркер: споживає `url.discovered`, завантажує сторінку відповідним
@@ -26,6 +27,7 @@ async function main() {
   await store.ensureBucket();
   const registry = new AdapterRegistry();
   const limiter = new DomainRateLimiter(redis);
+  const robots = new RobotsGate(redis, USER_AGENT);
 
   console.log("fetcher: підписка на", EventSubjects.UrlDiscovered);
 
@@ -40,6 +42,13 @@ async function main() {
 
       const policy = source.crawlPolicy as { maxRps?: number; engineHint?: string };
       const domain = new URL(url).hostname;
+
+      // 0. robots.txt — жорстке правило (інваріант 8): заборонено → не чіпаємо
+      if (!(await robots.allowed(url))) {
+        console.warn(`robots.txt disallow: ${url}`);
+        return;
+      }
+
       await limiter.acquire(domain, policy.maxRps ?? 0.5);
 
       // 1. Завантаження (детекція рушія всередині registry.fetch)

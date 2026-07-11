@@ -14,24 +14,33 @@
     "format": "prettier --write \"**/*.{ts,tsx,mjs,json,md,yml}\"",
     "check:arch": "node scripts/check-arch.mjs",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "turbo run clean && rimraf node_modules",
-    "infra:up": "docker compose -f infra/docker/docker-compose.yml up -d",
-    "infra:down": "docker compose -f infra/docker/docker-compose.yml down",
-    "infra:logs": "docker compose -f infra/docker/docker-compose.yml logs -f",
+    "infra:up": "docker compose --env-file .env -f infra/docker/docker-compose.yml up -d",
+    "infra:down": "docker compose --env-file .env -f infra/docker/docker-compose.yml down",
+    "infra:logs": "docker compose --env-file .env -f infra/docker/docker-compose.yml logs -f",
     "db:generate": "pnpm --filter @wiki/db generate",
     "db:migrate": "pnpm --filter @wiki/db migrate",
-    "db:seed": "pnpm --filter @wiki/db seed"
+    "db:seed": "pnpm --filter @wiki/db seed",
+    "smoke:ingest": "tsx scripts/smoke-ingest.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
     "@types/node": "^22.7.0",
+    "@wiki/chat-orchestrator": "workspace:*",
+    "@wiki/contracts": "workspace:*",
+    "@wiki/db": "workspace:*",
+    "@wiki/events": "workspace:*",
+    "@wiki/llm": "workspace:*",
+    "@wiki/retrieval": "workspace:*",
     "eslint": "^9.14.0",
     "prettier": "^3.3.3",
     "rimraf": "^6.0.1",
     "tsx": "^4.19.0",
     "turbo": "^2.1.0",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8.14.0"
+    "typescript-eslint": "^8.14.0",
+    "vitest": "^2.1.4"
   }
 }

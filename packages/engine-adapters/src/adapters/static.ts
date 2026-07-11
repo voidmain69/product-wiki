@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { request } from "undici";
 import type { EngineAdapter, FetchTask, ProbeData, FetchResult } from "../types.js";
 import { detectEngine } from "../detector.js";
+import { httpGet } from "../http.js";
 
 /** Найдешевший адаптер: звичайний HTTP GET. Підходить для server-rendered сторінок. */
 export class StaticHttpAdapter implements EngineAdapter {
@@ -13,11 +13,7 @@ export class StaticHttpAdapter implements EngineAdapter {
   }
 
   async fetch(task: FetchTask, _probe: ProbeData): Promise<FetchResult> {
-    const res = await request(task.url, {
-      method: "GET",
-      headers: { "user-agent": task.userAgent, accept: "text/html,application/xhtml+xml" },
-      maxRedirections: 5,
-    });
+    const res = await httpGet(task.url, task.userAgent);
     const html = await res.body.text();
     const contentHash = createHash("sha256").update(html).digest("hex");
 

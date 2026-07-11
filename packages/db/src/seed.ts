@@ -17,39 +17,46 @@ async function main() {
     })
     .onConflictDoNothing();
 
-  await db
-    .insert(attributeOntology)
-    .values([
-      {
-        key: "weight_net",
-        label: "Вага нетто",
-        dataType: "number",
-        unitCanonical: "kg",
-        aliases: ["вага", "weight", "net weight", "маса"],
-      },
-      {
-        key: "power_w",
-        label: "Потужність",
-        dataType: "number",
-        unitCanonical: "W",
-        aliases: ["потужність", "power", "wattage"],
-      },
-      {
-        key: "noise_db",
-        label: "Рівень шуму",
-        dataType: "number",
-        unitCanonical: "dB",
-        aliases: ["шум", "noise", "sound level"],
-      },
-      {
-        key: "battery_mah",
-        label: "Ємність акумулятора",
-        dataType: "number",
-        unitCanonical: "mAh",
-        aliases: ["акумулятор", "battery", "battery capacity"],
-      },
-    ])
-    .onConflictDoNothing();
+  // Онтологія: upsert, щоб повторний seed оновлював aliases/label (aliases ростуть).
+  const ontology = [
+    {
+      key: "weight_net",
+      label: "Вага нетто",
+      dataType: "number",
+      unitCanonical: "kg",
+      aliases: ["вага", "вага нетто", "маса", "weight", "net weight"],
+    },
+    {
+      key: "power_w",
+      label: "Потужність",
+      dataType: "number",
+      unitCanonical: "W",
+      aliases: ["потужність", "power", "wattage"],
+    },
+    {
+      key: "noise_db",
+      label: "Рівень шуму",
+      dataType: "number",
+      unitCanonical: "dB",
+      aliases: ["шум", "рівень шуму", "noise", "sound level"],
+    },
+    {
+      key: "battery_mah",
+      label: "Ємність акумулятора",
+      dataType: "number",
+      unitCanonical: "mAh",
+      aliases: ["акумулятор", "ємність акумулятора", "battery", "battery capacity"],
+    },
+  ];
+  for (const attr of ontology) {
+    await db
+      .insert(attributeOntology)
+      .values(attr)
+      .onConflictDoUpdate({
+        target: attributeOntology.key,
+        set: { label: attr.label, unitCanonical: attr.unitCanonical, aliases: attr.aliases },
+      });
+  }
 
   await db
     .insert(sources)

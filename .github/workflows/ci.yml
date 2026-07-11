@@ -43,6 +43,10 @@ jobs:
         run: pnpm typecheck
       - name: Lint
         run: pnpm lint
+      - name: Unit tests
+        run: pnpm test
+      - name: Build web (Next.js SSR)
+        run: pnpm --filter @wiki/web build
 
   # Python ML-сервіс: синтаксис + компіляція (повний lint — Фаза 2)
   ml-service:

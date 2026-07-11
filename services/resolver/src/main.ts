@@ -1,4 +1,4 @@
-import { eq, and, isNotNull } from "drizzle-orm";
+import { eq, and, isNotNull, inArray } from "drizzle-orm";
 import {
   createDb,
   productDrafts,
@@ -6,6 +6,7 @@ import {
   productRevisions,
   productAttributes,
   productTexts,
+  pageSnapshots,
   outbox,
 } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
@@ -84,8 +85,10 @@ async function main() {
           });
         }
 
-        // append-only revision — денормалізований знімок канонічної сутності
+        // append-only revision — денормалізований знімок канонічної сутності.
+        // categoryPath беремо з крихт джерела (draft), доки нема власної таксономії.
         const snapshot = await buildSnapshot(tx, productId);
+        snapshot.categoryPath = (draft.categoryRaw as string[]) ?? [];
         const [rev] = await tx
           .insert(productRevisions)
           .values({ productId, snapshot })
@@ -147,11 +150,32 @@ async function buildSnapshot(tx: DbOrTx, productId: string) {
   const [p] = await tx.select().from(products).where(eq(products.id, productId)).limit(1);
   const attrs = await tx.select().from(productAttributes).where(eq(productAttributes.productId, productId));
   const texts = await tx.select().from(productTexts).where(eq(productTexts.productId, productId));
+
+  // provenance: реальні URL першоджерел (для цитат [n] у чаті). Збираємо унікальні
+  // снапшоти, на які посилаються атрибути/тексти цього товару.
+  const snapIds = [
+    ...new Set([
+      ...attrs.map((a) => a.sourceSnapshotId),
+      ...texts.map((t) => t.sourceSnapshotId),
+    ]),
+  ];
+  const snaps = snapIds.length
+    ? await tx
+        .select({
+          id: pageSnapshots.id,
+          url: pageSnapshots.url,
+          sourceId: pageSnapshots.sourceId,
+          fetchedAt: pageSnapshots.fetchedAt,
+        })
+        .from(pageSnapshots)
+        .where(inArray(pageSnapshots.id, snapIds))
+    : [];
+
   return {
     id: productId,
     brand: p?.brand,
     name: p?.name,
-    categoryPath: [],
+    categoryPath: [] as string[],
     attributes: attrs.map((a) => ({
       key: a.attrKey,
       valueCanonical: a.valueCanonical,
@@ -159,7 +183,12 @@ async function buildSnapshot(tx: DbOrTx, productId: string) {
       valueRaw: a.valueRaw,
     })),
     texts: texts.map((t) => ({ section: t.section, text: t.text, lang: t.lang })),
-    sources: [],
+    sources: snaps.map((s) => ({
+      sourceId: s.sourceId,
+      snapshotRef: s.id,
+      url: s.url,
+      fetchedAt: s.fetchedAt.toISOString(),
+    })),
   };
 }
 

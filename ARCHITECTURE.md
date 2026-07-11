@@ -410,6 +410,19 @@ sequenceDiagram
 **Фаза 1 — MVP (вертикальний зріз, 1–2 категорії, ~10 виробників):**
 монорепо-скелет, contracts, Postgres+NATS+Qdrant+MinIO у compose; Static+Headless адаптери; extraction JSON-LD + LLM-fallback; базова нормалізація; індексація overview+spec чанків; чат: info + recommend з цитатами.
 
+> **Стан:** бекенд працює наскрізь і перевірений E2E (`pnpm smoke:ingest`):
+> `source → discovery → fetcher (robots.txt) → extractor (JSON-LD) → normalizer (SI) →
+> resolver (provenance) → indexer → Qdrant → hybrid retrieval (RRF) → chat (intent →
+> rerank → відповідь з цитатами [n])`. Чат-SSE перевірено і через `apps/api` (`POST /chat`).
+> Юніт-тести чистої логіки (vitest, 47). Dev-режими без GPU/LLM: `ML_DEV_MODE=1`
+> (лексичні ембединги), `LLM_DEV_MODE=1` (детермінований провайдер) — реальні
+> BGE-M3/LLM вмикаються заміною конфігу.
+> Три intent-и працюють: info/recommend (retrieval+цитати) і compare
+> (детермінований diff канонічних атрибутів, `compare.ts`) — перевірено через
+> `apps/api`. SSR-сторінки товарів («вікіпедія») з provenance теж готові.
+> Лишається до повного MVP: реальні BGE-M3 + LLM на GPU-хості; LLM-fallback
+> екстракції на сайтах без JSON-LD; реальні джерела через курируваний Registry.
+
 **Фаза 2 — Достовірність і порівняння:**
 entity resolution + версіонування; онтологія атрибутів + compare-intent з детермінованим diff; merge queue UI; faithfulness-метрики; SSR-сторінки товарів.
 

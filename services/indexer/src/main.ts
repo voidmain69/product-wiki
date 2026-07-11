@@ -35,6 +35,11 @@ async function main() {
         .limit(1);
       if (!rev) return;
       const product = rev.snapshot as Product;
+      // snapshot створюється ДО присвоєння id ревізії, тож проставляємо їх з події:
+      // chunk.revisionId має збігатися з keepRevisionId, інакше deleteStale видалить
+      // щойно вставлені точки (стара ревізія = все, що != поточна).
+      product.id = productId;
+      product.revisionId = revisionId;
 
       // usecase-чанк: LLM один раз описує "для кого і яких потреб" з фактів картки
       const usecase = await llm

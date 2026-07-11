@@ -12,11 +12,22 @@ pnpm infra:up / infra:down   # dev-інфраструктура (postgres, nats,
 pnpm db:generate && pnpm db:migrate && pnpm db:seed
 pnpm dev                     # всі воркери + api + web (turbo)
 pnpm typecheck               # перевірка типів усіх пакетів
+pnpm test                    # vitest — юніт-тести чистої логіки (колокуються як *.test.ts)
 pnpm check:arch              # ГВАРД АРХІТЕКТУРИ — запускати після будь-яких змін імпортів
 pnpm lint                    # eslint
 node scripts/new-service.mjs <name> "<опис>" <subject-in> <subject-out>   # новий воркер
-cd services/ml && uv run uvicorn app:app --port 8080                      # ML-сервіс (Python)
+pnpm --filter @wiki/api register-source <abs-path-to-source.json>         # реєстрація джерела
+cd services/ml && uv run uvicorn app:app --port 8091                      # ML-сервіс (Python, prod)
+ML_DEV_MODE=1 python -m uvicorn app:app --port 8091                       # ML dev (лексичні ембединги, без torch)
+pnpm smoke:ingest                                                         # E2E: ingest → index → retrieve → chat (якщо ML up)
 ```
+
+> Dev-режими без GPU/LLM: `ML_DEV_MODE=1` (лексичні ембединги) і `LLM_DEV_MODE=1`
+> (детермінований LLM-провайдер, evристичний intent + цитований відповідь). Реальні
+> BGE-M3/LLM — заміна конфігу (`LLM_PROVIDER=local|anthropic`, `ML` prod-extra), без змін коду.
+
+> Порти інфраструктури конфігуруються через `*_PORT` у `.env` (compose читає `--env-file .env`);
+> зсувай лише за конфлікту портів і синхронно онови відповідні `*_URL`.
 
 ## Карта монорепо
 

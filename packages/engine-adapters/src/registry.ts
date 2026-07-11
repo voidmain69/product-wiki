@@ -1,4 +1,4 @@
-import { request } from "undici";
+import { httpGet } from "./http.js";
 import type { EngineAdapter, FetchTask, ProbeData, FetchResult } from "./types.js";
 import { StaticHttpAdapter } from "./adapters/static.js";
 import { HeadlessAdapter } from "./adapters/headless.js";
@@ -22,11 +22,7 @@ export class AdapterRegistry {
 
   /** Дешеве зондування: GET перших ~64KB без рендеру. */
   async probeUrl(url: string, userAgent: string): Promise<ProbeData> {
-    const res = await request(url, {
-      method: "GET",
-      headers: { "user-agent": userAgent, accept: "text/html,application/xhtml+xml" },
-      maxRedirections: 5,
-    });
+    const res = await httpGet(url, userAgent);
     const buf = await res.body.arrayBuffer();
     const sample = new TextDecoder().decode(buf.slice(0, 64 * 1024));
     return {

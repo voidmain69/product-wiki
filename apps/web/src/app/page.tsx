@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
-import type { ChatIntent, ProductCard } from "@wiki/contracts";
+import Link from "next/link";
+import type { ChatIntent, ProductCard, Citation, ComparisonTable } from "@wiki/contracts";
 import { streamChat } from "@/lib/chat-stream";
 
 interface Turn {
@@ -9,6 +10,8 @@ interface Turn {
   text: string;
   intent?: ChatIntent;
   cards?: ProductCard[];
+  citations?: Citation[];
+  comparison?: ComparisonTable;
 }
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -27,6 +30,7 @@ export default function Home() {
     setTurns((t) => [...t, { role: "user", text: message }, { role: "assistant", text: "" }]);
 
     const cards: ProductCard[] = [];
+    const citations: Citation[] = [];
     try {
       for await (const ev of streamChat(API, { message, sessionId: sessionId.current })) {
         if (ev.type === "session") sessionId.current = ev.sessionId;
@@ -37,6 +41,12 @@ export default function Home() {
         else if (ev.type === "product_card") {
           cards.push(ev.card);
           setTurns((t) => patchLast(t, (last) => ({ ...last, cards: [...cards] })));
+        } else if (ev.type === "citation") {
+          citations.push(ev.citation);
+          setTurns((t) => patchLast(t, (last) => ({ ...last, citations: [...citations] })));
+        } else if (ev.type === "comparison") {
+          const table = ev.table as ComparisonTable;
+          setTurns((t) => patchLast(t, (last) => ({ ...last, comparison: table })));
         }
       }
     } finally {
@@ -47,7 +57,12 @@ export default function Home() {
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: 24, minHeight: "100vh" }}>
       <header style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>🛍️ Вікіпедія товарів</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>🛍️ Вікіпедія товарів</h1>
+          <Link href="/products" style={{ color: "#58a6ff", fontSize: 14 }}>
+            Каталог →
+          </Link>
+        </div>
         <p style={{ color: "#8b93a1", fontSize: 14 }}>
           Достовірні дані лише з офіційних сайтів виробників. Кожна відповідь — з посиланням на
           джерело.
@@ -73,10 +88,39 @@ export default function Home() {
               )}
               {t.text || (t.role === "assistant" && busy ? "…" : "")}
               {t.cards?.map((c) => (
-                <div key={c.productId} style={{ marginTop: 8, padding: 8, border: "1px solid #2d333b", borderRadius: 8 }}>
-                  <strong>{c.brand}</strong> {c.name}
-                </div>
+                <Link
+                  key={c.productId}
+                  href={`/products/${c.productId}`}
+                  style={{
+                    display: "block",
+                    marginTop: 8,
+                    padding: 8,
+                    border: "1px solid #2d333b",
+                    borderRadius: 8,
+                    textDecoration: "none",
+                    color: "#e7eaee",
+                  }}
+                >
+                  <strong>{c.brand}</strong> {c.name} <span style={{ color: "#58a6ff", fontSize: 12 }}>→</span>
+                </Link>
               ))}
+              {t.comparison && <ComparisonView table={t.comparison} />}
+              {t.citations && t.citations.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 12, color: "#8b93a1" }}>
+                  Джерела:{" "}
+                  {dedupeCitations(t.citations).map((c) => (
+                    <a
+                      key={c.marker}
+                      href={c.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#58a6ff", marginRight: 8 }}
+                    >
+                      [{c.marker}]
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -98,7 +142,7 @@ export default function Home() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder="Напр.: порадь тихий робот-пилосос до 15000 грн"
+            placeholder="Напр.: порадь тихий пилосос до 15000 грн · порівняй X і Y · яка вага Z?"
             style={{
               flex: 1,
               padding: "12px 14px",
@@ -127,4 +171,49 @@ function patchLast(turns: Turn[], fn: (t: Turn) => Turn): Turn[] {
   const last = copy[copy.length - 1];
   if (last) copy[copy.length - 1] = fn(last);
   return copy;
+}
+
+/** Таблиця порівняння — будується КОДОМ на бекенді (compare.ts); тут лише рендер.
+ *  Рядки з відмінностями підсвічуються, щоб різниця читалась з першого погляду. */
+function ComparisonView({ table }: { table: ComparisonTable }) {
+  return (
+    <div style={{ marginTop: 10, overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%" }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left", padding: "4px 8px", color: "#8b93a1" }}></th>
+            {table.productNames.map((n) => (
+              <th key={n} style={{ textAlign: "left", padding: "4px 8px" }}>
+                {n}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((r) => (
+            <tr key={r.attrKey} style={{ background: r.differs ? "#1c2530" : "transparent" }}>
+              <td style={{ padding: "4px 8px", color: "#8b93a1" }}>{r.label}</td>
+              {r.values.map((v, i) => (
+                <td key={i} style={{ padding: "4px 8px", fontWeight: r.differs ? 600 : 400 }}>
+                  {v ?? "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Одна цитата на джерело (marker), щоб не дублювати посилання. */
+function dedupeCitations(citations: Citation[]): Citation[] {
+  const seen = new Set<string>();
+  const out: Citation[] = [];
+  for (const c of citations) {
+    if (seen.has(c.sourceUrl)) continue;
+    seen.add(c.sourceUrl);
+    out.push(c);
+  }
+  return out;
 }

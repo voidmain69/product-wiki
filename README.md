@@ -60,7 +60,38 @@ cd services/ml && uv sync && uv run uvicorn app:app --port 8080
 pnpm dev
 ```
 
-Відкрити http://localhost:3000 — чат. API — http://localhost:3001.
+Відкрити http://localhost:3000 — чат (стрімінг, картки-посилання, цитати-джерела).
+`/products` — SSR-каталог, `/products/[id]` — сторінка товару («вікіпедія»):
+характеристики з provenance-посиланнями на сайт виробника. API — http://localhost:3001.
+
+## Локальний E2E ingest (без зовнішньої мережі й LLM)
+
+Доводить наскрізний потік `source → canonical product з provenance` на детермінованому
+JSON-LD-шляху проти живої інфраструктури. Піднімає локальний fixture-сайт «виробника»,
+запускає воркери ingest і чекає канонічні товари:
+
+```bash
+pnpm infra:up && pnpm db:migrate && pnpm db:seed
+pnpm smoke:ingest
+```
+
+Очікуваний результат — 2 канонічні товари, кожен атрибут нормалізований до SI і
+посилається на URL сторінки виробника (provenance).
+
+Якщо запущено ML-сервіс (достатньо dev-режиму, без GPU), той самий прогін додатково
+**індексує чанки в Qdrant і перевіряє retrieval** (гібридний dense+sparse RRF):
+
+```bash
+# окремий термінал: легкий ML-сервіс (лексичні ембединги, без torch)
+cd services/ml && python -m venv .venv && ./.venv/Scripts/pip install -e .
+ML_DEV_MODE=1 ./.venv/Scripts/python -m uvicorn app:app --port 8091
+# потім (LLM_DEV_MODE=1 у .env вмикає детермінований LLM-провайдер):
+pnpm smoke:ingest   # ingest → index → retrieve → chat (intent, картки, цитати [n])
+```
+
+Той самий чат доступний через API: `POST /chat` (SSE) на `apps/api`. Dev-режими
+(`ML_DEV_MODE`, `LLM_DEV_MODE`) дають повний цикл без GPU/LLM; реальні BGE-M3 та
+LLM (vLLM/ollama/Anthropic) вмикаються заміною конфігу без змін коду.
 
 ## Ключові архітектурні рішення
 
@@ -78,8 +109,10 @@ pnpm dev
 ```bash
 pnpm build        # turbo build усього
 pnpm typecheck    # перевірка типів
+pnpm test         # vitest — юніт-тести чистої логіки
 pnpm check:arch   # гвард архітектурних меж (scripts/check-arch.mjs)
 pnpm lint         # eslint
+pnpm smoke:ingest # локальний E2E ingest проти живої інфраструктури
 pnpm infra:down   # зупинити інфраструктуру
 
 node scripts/new-service.mjs <name> "<опис>" <in> <out>   # новий воркер за шаблоном
