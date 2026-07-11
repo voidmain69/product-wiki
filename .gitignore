@@ -5,6 +5,11 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# python
+.venv/
+__pycache__/
+*.pyc
+
 # env
 .env
 .env.local

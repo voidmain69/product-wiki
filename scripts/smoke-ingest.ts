@@ -21,12 +21,30 @@ import { tmpdir } from "node:os";
 import { sql, isNotNull, eq } from "drizzle-orm";
 import { createDb, products, productAttributes, pageSnapshots, productDrafts, sources, crawlTasks } from "@wiki/db";
 import { EventBus } from "@wiki/events";
+import { MlClient, QdrantIndex, COLLECTION } from "@wiki/retrieval";
 // @ts-expect-error — .mjs без типів (fixture лишається plain-JS для standalone-запуску)
 import { startFixtureServer, FIXTURE_BRAND, FIXTURE_PRODUCT_COUNT } from "./fixture-server.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const FIXTURE_PORT = 4599;
-const WORKERS = ["outbox-relay", "discovery", "fetcher", "extractor", "normalizer", "resolver"];
+const INGEST_WORKERS = ["outbox-relay", "discovery", "fetcher", "extractor", "normalizer", "resolver"];
+
+/** Чи доступний ML-сервіс (для indexing + retrieval). */
+async function mlUp(): Promise<boolean> {
+  const url = process.env.ML_HTTP_URL ?? "http://localhost:8080";
+  try {
+    const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1500) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Скидає колекцію Qdrant (герметичність retrieval-перевірки). */
+async function resetQdrant(): Promise<void> {
+  const url = process.env.QDRANT_URL ?? "http://localhost:6333";
+  await fetch(`${url}/collections/${COLLECTION}`, { method: "DELETE" }).catch(() => void 0);
+}
 
 /** Завантажує .env у process.env (createDb/EventBus читають звідти). */
 function loadEnv(): void {
@@ -67,9 +85,15 @@ async function main() {
   let ok = false;
 
   try {
-    // 1. Герметичність: чистимо NATS-стрім і доменні таблиці
-    console.log("• purge NATS + TRUNCATE доменних таблиць");
+    // ML доступний? Тоді додаємо indexing + retrieval до перевірки.
+    const withIndex = await mlUp();
+    const workers = withIndex ? [...INGEST_WORKERS, "indexer"] : INGEST_WORKERS;
+    console.log(withIndex ? "• ML-сервіс доступний → + indexer/retrieval" : "• ML-сервіс недоступний → лише ingest");
+
+    // 1. Герметичність: чистимо NATS-стрім, Qdrant-колекцію і доменні таблиці
+    console.log("• purge NATS + Qdrant + TRUNCATE доменних таблиць");
     await bus.purge();
+    if (withIndex) await resetQdrant();
     await db.execute(sql`TRUNCATE crawl_tasks, page_snapshots, product_drafts, product_attributes,
       product_texts, product_revisions, products, merge_queue, chat_queries, outbox, sources
       RESTART IDENTITY CASCADE`);
@@ -79,8 +103,8 @@ async function main() {
     const origin = `http://127.0.0.1:${FIXTURE_PORT}`;
 
     // 3. Воркери (споживачі подій) — створюють свіжі durable-консюмери
-    console.log(`• старт воркерів: ${WORKERS.join(", ")}`);
-    for (const w of WORKERS) children.push(startWorker(w));
+    console.log(`• старт воркерів: ${workers.join(", ")}`);
+    for (const w of workers) children.push(startWorker(w));
     await sleep(3500);
 
     // 4. Реєстрація fixture-джерела реальним CLI (source + outbox транзакційно)
@@ -140,6 +164,42 @@ async function main() {
       const path = new URL(r.sourceUrl).pathname;
       console.log(`  ${r.product.padEnd(22)} ${r.attr.padEnd(14)} ${String(r.value).padEnd(6)} ${r.unit ?? ""}  ← ${path}`);
     }
+
+    // 7. Індексація + retrieval (лише якщо ML доступний)
+    if (withIndex) {
+      const qdrant = new QdrantIndex(new MlClient());
+      const qUrl = process.env.QDRANT_URL ?? "http://localhost:6333";
+
+      // чекаємо, поки indexer наб'є чанки в Qdrant
+      console.log("\n• чекаю індексацію в Qdrant...");
+      const idxDeadline = Date.now() + 30_000;
+      let pts = 0;
+      while (Date.now() < idxDeadline) {
+        const info = (await fetch(`${qUrl}/collections/${COLLECTION}`)
+          .then((r) => r.json())
+          .catch(() => null)) as { result?: { points_count?: number } } | null;
+        pts = info?.result?.points_count ?? 0;
+        if (pts > 0) break;
+        await sleep(1500);
+      }
+      console.log(`  Qdrant points=${pts}`);
+      if (pts === 0) throw new Error("indexer did not populate Qdrant");
+
+      // дискримінуючий лексичний запит: "LiDAR ... 200 м²" є лише в RoboVac X40
+      const [expected] = await db
+        .select({ id: products.id, name: products.name })
+        .from(products)
+        .where(sql`${products.name} ILIKE '%RoboVac%'`)
+        .limit(1);
+      const hits = await qdrant.search("LiDAR навігація для великих квартир до 200 м²", {}, 10);
+      const top = hits[0];
+      console.log("\n✓ Retrieval (гібридний dense+sparse RRF):");
+      console.log(`  запит → топ товар: ${top?.productId === expected?.id ? "RoboVac X40 ✓" : top?.productId} (score ${top?.score.toFixed(3)})`);
+      if (!top || top.productId !== expected?.id) {
+        throw new Error(`retrieval expected RoboVac X40 (${expected?.id}), got ${top?.productId}`);
+      }
+    }
+
     ok = true;
   } finally {
     for (const c of children) c.kill();
