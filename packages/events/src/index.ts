@@ -91,6 +91,22 @@ export class EventBus {
   async drain(): Promise<void> {
     await this.nc.drain();
   }
+
+  /**
+   * Скидає стан стріму: видаляє durable-консюмерів і очищає повідомлення.
+   * Лише для dev/тестів (напр. герметичний smoke-прогін) — НЕ для продакшну.
+   */
+  async purge(): Promise<void> {
+    try {
+      const list = await this.jsm.consumers.list(STREAM);
+      for await (const ci of list) {
+        await this.jsm.consumers.delete(STREAM, ci.name).catch(() => void 0);
+      }
+      await this.jsm.streams.purge(STREAM);
+    } catch {
+      /* стріму ще нема — нічого чистити */
+    }
+  }
 }
 
 export { EventSubjects };

@@ -22,11 +22,15 @@
     "infra:logs": "docker compose --env-file .env -f infra/docker/docker-compose.yml logs -f",
     "db:generate": "pnpm --filter @wiki/db generate",
     "db:migrate": "pnpm --filter @wiki/db migrate",
-    "db:seed": "pnpm --filter @wiki/db seed"
+    "db:seed": "pnpm --filter @wiki/db seed",
+    "smoke:ingest": "tsx scripts/smoke-ingest.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
     "@types/node": "^22.7.0",
+    "@wiki/contracts": "workspace:*",
+    "@wiki/db": "workspace:*",
+    "@wiki/events": "workspace:*",
     "eslint": "^9.14.0",
     "prettier": "^3.3.3",
     "rimraf": "^6.0.1",
