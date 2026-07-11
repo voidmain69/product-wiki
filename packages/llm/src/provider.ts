@@ -32,15 +32,20 @@ export interface LLMProvider {
 }
 
 export interface LLMConfig {
-  provider: "local" | "anthropic" | "openai-compatible";
+  provider: "local" | "anthropic" | "openai-compatible" | "dev";
   baseUrl?: string;
   apiKey?: string;
   model: string;
 }
 
 export function llmConfigFromEnv(): LLMConfig {
+  const devMode = (process.env.LLM_DEV_MODE ?? "").toLowerCase();
+  const provider =
+    devMode === "1" || devMode === "true"
+      ? "dev"
+      : (process.env.LLM_PROVIDER as LLMConfig["provider"]) ?? "local";
   return {
-    provider: (process.env.LLM_PROVIDER as LLMConfig["provider"]) ?? "local",
+    provider,
     baseUrl: process.env.LLM_BASE_URL,
     apiKey: process.env.LLM_API_KEY,
     model: process.env.LLM_MODEL ?? "qwen2.5-14b-instruct",

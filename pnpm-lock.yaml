@@ -14,6 +14,9 @@ importers:
       '@types/node':
         specifier: ^22.7.0
         version: 22.20.1
+      '@wiki/chat-orchestrator':
+        specifier: workspace:*
+        version: link:services/chat-orchestrator
       '@wiki/contracts':
         specifier: workspace:*
         version: link:packages/contracts
@@ -23,6 +26,9 @@ importers:
       '@wiki/events':
         specifier: workspace:*
         version: link:packages/events
+      '@wiki/llm':
+        specifier: workspace:*
+        version: link:packages/llm
       '@wiki/retrieval':
         specifier: workspace:*
         version: link:packages/retrieval

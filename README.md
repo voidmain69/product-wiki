@@ -83,9 +83,13 @@ pnpm smoke:ingest
 # окремий термінал: легкий ML-сервіс (лексичні ембединги, без torch)
 cd services/ml && python -m venv .venv && ./.venv/Scripts/pip install -e .
 ML_DEV_MODE=1 ./.venv/Scripts/python -m uvicorn app:app --port 8091
-# потім:
-pnpm smoke:ingest   # тепер: ingest → index → retrieve, з перевіркою релевантності
+# потім (LLM_DEV_MODE=1 у .env вмикає детермінований LLM-провайдер):
+pnpm smoke:ingest   # ingest → index → retrieve → chat (intent, картки, цитати [n])
 ```
+
+Той самий чат доступний через API: `POST /chat` (SSE) на `apps/api`. Dev-режими
+(`ML_DEV_MODE`, `LLM_DEV_MODE`) дають повний цикл без GPU/LLM; реальні BGE-M3 та
+LLM (vLLM/ollama/Anthropic) вмикаються заміною конфігу без змін коду.
 
 ## Ключові архітектурні рішення
 
