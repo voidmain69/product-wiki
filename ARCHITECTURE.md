@@ -417,8 +417,11 @@ sequenceDiagram
 > Юніт-тести чистої логіки (vitest, 47). Dev-режими без GPU/LLM: `ML_DEV_MODE=1`
 > (лексичні ембединги), `LLM_DEV_MODE=1` (детермінований провайдер) — реальні
 > BGE-M3/LLM вмикаються заміною конфігу.
+> Три intent-и працюють: info/recommend (retrieval+цитати) і compare
+> (детермінований diff канонічних атрибутів, `compare.ts`) — перевірено через
+> `apps/api`. SSR-сторінки товарів («вікіпедія») з provenance теж готові.
 > Лишається до повного MVP: реальні BGE-M3 + LLM на GPU-хості; LLM-fallback
-> екстракції на сайтах без JSON-LD; compare-UI; SSR-сторінки товарів.
+> екстракції на сайтах без JSON-LD; реальні джерела через курируваний Registry.
 
 **Фаза 2 — Достовірність і порівняння:**
 entity resolution + версіонування; онтологія атрибутів + compare-intent з детермінованим diff; merge queue UI; faithfulness-метрики; SSR-сторінки товарів.

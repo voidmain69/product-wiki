@@ -24,7 +24,7 @@ import { EventBus } from "@wiki/events";
 import { MlClient, QdrantIndex, COLLECTION } from "@wiki/retrieval";
 import { createLLM } from "@wiki/llm";
 import { runChat } from "@wiki/chat-orchestrator";
-import type { ChatStreamEvent } from "@wiki/contracts";
+import type { ChatStreamEvent, ComparisonTable } from "@wiki/contracts";
 // @ts-expect-error — .mjs без типів (fixture лишається plain-JS для standalone-запуску)
 import { startFixtureServer, FIXTURE_BRAND, FIXTURE_PRODUCT_COUNT } from "./fixture-server.mjs";
 
@@ -224,6 +224,25 @@ async function main() {
       const okChat =
         types.has("intent") && types.has("done") && cards >= 1 && cites >= 1 && /\[\d+\]/.test(answer);
       if (!okChat) throw new Error(`chat stream incomplete: intent=${intentEv?.intent} cards=${cards} cites=${cites}`);
+
+      // 9. Порівняння: детермінований diff канонічних атрибутів (не LLM)
+      const cmpEvents: ChatStreamEvent[] = [];
+      for await (const ev of runChat(chatDeps, {
+        sessionId: "smoke",
+        message: "Порівняй RoboVac X40 і SilentVac Mini",
+        history: [],
+      })) {
+        cmpEvents.push(ev);
+      }
+      const cmpIntent = (cmpEvents.find((e) => e.type === "intent") as { intent: string } | undefined)?.intent;
+      const cmp = cmpEvents.find((e) => e.type === "comparison") as { table?: ComparisonTable } | undefined;
+      const rows = cmp?.table?.rows ?? [];
+      const differing = rows.filter((r) => r.differs).length;
+      console.log("\n✓ Порівняння (детермінований diff):");
+      console.log(`  intent=${cmpIntent} товари=${cmp?.table?.productNames.join(" vs ")} рядків=${rows.length} відмінних=${differing}`);
+      if (cmpIntent !== "compare" || rows.length === 0 || differing === 0) {
+        throw new Error(`compare failed: intent=${cmpIntent} rows=${rows.length} differing=${differing}`);
+      }
     }
 
     ok = true;
