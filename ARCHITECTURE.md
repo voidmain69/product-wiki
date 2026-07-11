@@ -420,8 +420,13 @@ sequenceDiagram
 > Три intent-и працюють: info/recommend (retrieval+цитати) і compare
 > (детермінований diff канонічних атрибутів, `compare.ts`) — перевірено через
 > `apps/api`. SSR-сторінки товарів («вікіпедія») з provenance теж готові.
+> Перевірено на ЖИВОМУ сайті виробника (`pnpm smoke:real`, Logitech): реальний
+> crawl (robots.txt) → JSON-LD екстракція → canonical з provenance. Виявлені й
+> усунуті реальні кейси: ідентифікатори у вкладених `model[]/offers[]`, великі
+> cookie-заголовки (maxHeaderSize). Специфікації з таких сайтів (commerce-JSON-LD
+> без `additionalProperty`) потребують рівнів 3-4 каскаду (recipe/LLM).
 > Лишається до повного MVP: реальні BGE-M3 + LLM на GPU-хості; LLM-fallback
-> екстракції на сайтах без JSON-LD; реальні джерела через курируваний Registry.
+> екстракції; курируваний Source Registry з верифікацією доменів.
 
 **Фаза 2 — Достовірність і порівняння:**
 entity resolution + версіонування; онтологія атрибутів + compare-intent з детермінованим diff; merge queue UI; faithfulness-метрики; SSR-сторінки товарів.

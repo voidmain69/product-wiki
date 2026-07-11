@@ -75,13 +75,37 @@ function mapSchemaOrgProduct(p: Record<string, unknown>): DraftCore {
   return {
     name: String(p.name ?? ""),
     brand,
-    mpn: p.mpn ? String(p.mpn) : undefined,
-    gtin: (p.gtin13 ?? p.gtin ?? p.gtin14) ? String(p.gtin13 ?? p.gtin ?? p.gtin14) : undefined,
+    // ідентифікатори реально лежать не лише в топ-рівні Product, а й у вкладених
+    // model[] (ProductModel-варіанти) та offers[] (Offer) — саме так робить Logitech
+    // та багато виробників. Шукаємо в усіх трьох місцях.
+    mpn: firstIdentifier(p, ["mpn"]),
+    gtin: firstIdentifier(p, ["gtin13", "gtin", "gtin14", "gtin8"]),
     categoryRaw: p.category ? [String(p.category)] : [],
     attributesRaw,
     descriptions: p.description ? [{ section: "overview", text: String(p.description) }] : [],
     media: normalizeImages(p.image),
   };
+}
+
+/** Перший знайдений ідентифікатор: топ-рівень Product → model[] → offers[]. */
+function firstIdentifier(p: Record<string, unknown>, keys: string[]): string | undefined {
+  const scan = (obj: unknown): string | undefined => {
+    if (!obj || typeof obj !== "object") return undefined;
+    const rec = obj as Record<string, unknown>;
+    for (const k of keys) {
+      const v = rec[k];
+      if (typeof v === "string" || typeof v === "number") return String(v);
+    }
+    return undefined;
+  };
+  const nested = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? (v as Record<string, unknown>[]) : v ? [v as Record<string, unknown>] : [];
+
+  return (
+    scan(p) ??
+    nested(p.model).map(scan).find(Boolean) ??
+    nested(p.offers).map(scan).find(Boolean)
+  );
 }
 
 function normalizeImages(image: unknown): DraftCore["media"] {

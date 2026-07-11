@@ -2,8 +2,11 @@ import { Agent, interceptors, request } from "undici";
 import type Redis from "ioredis";
 import { parseRobots, isPathAllowed } from "./robots-parser.js";
 
-// undici 6+: редиректи лише через інтерцептор, не через опцію maxRedirections
-const dispatcher = new Agent().compose(interceptors.redirect({ maxRedirections: 3 }));
+// undici 6+: редиректи лише через інтерцептор; maxHeaderSize підняте під великі
+// cookie-заголовки реальних сайтів (див. engine-adapters/http.ts).
+const dispatcher = new Agent({ maxHeaderSize: 128 * 1024 }).compose(
+  interceptors.redirect({ maxRedirections: 3 }),
+);
 
 /**
  * Дотримання robots.txt — жорсткий інваріант (8). Ми соціальний проєкт і поводимось
