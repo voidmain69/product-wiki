@@ -1,6 +1,8 @@
 name: product-wiki
 
 # Dev-інфраструктура одним `pnpm infra:up`. Продакшн — k8s (infra/k8s).
+# Host-порти конфігуруються через env (`*_PORT`), щоб проєкт співіснував з іншими
+# локальними стеками. Дефолти — стандартні; переозначай у .env за конфлікту.
 services:
   postgres:
     image: postgres:16-alpine
@@ -9,7 +11,7 @@ services:
       POSTGRES_PASSWORD: wiki
       POSTGRES_DB: wiki
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./volumes/pg:/var/lib/postgresql/data
     healthcheck:
@@ -23,16 +25,16 @@ services:
     # -js вмикає JetStream (persistence + consumer groups + replay)
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222" # клієнти
-      - "8222:8222" # моніторинг
+      - "${NATS_PORT:-4222}:4222" # клієнти
+      - "${NATS_MONITOR_PORT:-8222}:8222" # моніторинг
     volumes:
       - ./volumes/nats:/data
 
   qdrant:
     image: qdrant/qdrant:v1.12.1
     ports:
-      - "6333:6333" # REST
-      - "6334:6334" # gRPC
+      - "${QDRANT_PORT:-6333}:6333" # REST
+      - "${QDRANT_GRPC_PORT:-6334}:6334" # gRPC
     volumes:
       - ./volumes/qdrant:/qdrant/storage
 
@@ -40,7 +42,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - ./volumes/redis:/data
 
@@ -51,8 +53,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # консоль
+      - "${S3_PORT:-9000}:9000" # S3 API
+      - "${S3_CONSOLE_PORT:-9001}:9001" # консоль
     volumes:
       - ./volumes/minio:/data
     healthcheck:

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "register-source": "tsx src/cli/register-source.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
