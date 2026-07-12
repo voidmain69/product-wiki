@@ -7,10 +7,21 @@ Python-сервіс інференсу. Тримає моделі в пам'ят
 
 ## Режими
 
-- **prod (дефолт)** — реальні BGE-M3 + reranker (потребує torch/ваг, ~2-4 ГБ).
+- **prod (дефолт)** — реальні BGE-M3 + reranker локально (потребує torch/ваг, ~2-4 ГБ).
 - **dev (`ML_DEV_MODE=1`)** — детерміновані ЛЕКСИЧНІ ембединги на numpy, без torch і
   без завантаження ваг: sparse = хешований TF (реальний лексичний матч), dense =
   стабільний bag-of-words (1024-dim, як у прода). Для локального E2E/CI без GPU.
+- **tei (`ML_TEI_MODE=1`)** — ЛЕГКИЙ проксі на GPU-хост з HuggingFace TEI (реальні
+  моделі, але torch тут не потрібен): dense `BAAI/bge-m3` (`TEI_DENSE_URL`), sparse
+  `naver/splade-v3` (`TEI_SPARSE_URL`), rerank `BAAI/bge-reranker-v2-m3`
+  (`TEI_RERANK_URL`). Реформатовує TEI-відповіді у наш `/embed` та `/rerank` API.
+  Так інференс іде на GPU-ноді, а решта пайплайна лишається локальною.
+
+  ```bash
+  ML_TEI_MODE=1 TEI_DENSE_URL=http://<gpu-host>:8081 \
+    TEI_SPARSE_URL=http://<gpu-host>:8082 TEI_RERANK_URL=http://<gpu-host>:8083 \
+    ./.venv/Scripts/python -m uvicorn app:app --port 8091
+  ```
 
 ## Запуск
 

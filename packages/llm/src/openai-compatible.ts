@@ -31,6 +31,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
         max_tokens: opts.maxTokens ?? 1024,
         stop: opts.stop,
         stream,
+        // JSON-mode: змушує сервер (ollama/vLLM/OpenAI) повертати валідний JSON —
+        // критично для надійного structured-виходу на реальних LLM.
+        ...(opts.jsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
     });
   }
@@ -81,7 +84,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       const augmented: ChatTurn[] = attempt === 0
         ? messages
         : [...messages, { role: "user", content: `Попередня відповідь була невалідною: ${lastErr}. Поверни ЛИШЕ валідний JSON.` }];
-      const raw = await this.generate(augmented, { ...opts, temperature: 0 });
+      const raw = await this.generate(augmented, { ...opts, temperature: 0, jsonMode: true });
       const jsonText = extractJson(raw);
       const parsed = schema.safeParse(safeJsonParse(jsonText));
       if (parsed.success) return parsed.data;

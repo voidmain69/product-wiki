@@ -9,6 +9,8 @@ export interface GenerateOptions {
   temperature?: number;
   maxTokens?: number;
   stop?: string[];
+  /** Змусити сервер повертати валідний JSON (response_format json_object). */
+  jsonMode?: boolean;
 }
 
 /**
