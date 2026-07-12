@@ -16,7 +16,19 @@ import { registerProductRoutes } from "./routes/products.js";
  */
 async function main() {
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: process.env.WEB_ORIGIN ?? true });
+  // CORS: дозволяємо налаштований WEB_ORIGIN, а в dev — будь-який localhost
+  // (порт web-сервера може відрізнятись, напр. 3002 якщо 3000 зайнятий).
+  const strictOrigin = process.env.WEB_ORIGIN;
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      const ok =
+        !origin ||
+        origin === strictOrigin ||
+        (process.env.NODE_ENV !== "production" &&
+          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
+      cb(null, ok);
+    },
+  });
   await app.register(rateLimit, {
     max: 30, // 30 повідомлень
     timeWindow: "1 minute", // за хвилину на IP
