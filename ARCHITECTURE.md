@@ -420,8 +420,17 @@ sequenceDiagram
 > Три intent-и працюють: info/recommend (retrieval+цитати) і compare
 > (детермінований diff канонічних атрибутів, `compare.ts`) — перевірено через
 > `apps/api`. SSR-сторінки товарів («вікіпедія») з provenance теж готові.
-> Лишається до повного MVP: реальні BGE-M3 + LLM на GPU-хості; LLM-fallback
-> екстракції на сайтах без JSON-LD; реальні джерела через курируваний Registry.
+> Перевірено на ЖИВОМУ сайті виробника (`pnpm smoke:real`, Logitech): реальний
+> crawl (robots.txt) → JSON-LD екстракція → canonical з provenance.
+>
+> **Перевірено з РЕАЛЬНИМИ моделями на GPU** (RTX 3080 Ti): dense `BAAI/bge-m3` +
+> sparse `naver/splade-v3` + rerank `bge-reranker-v2-m3` через HuggingFace TEI
+> (ml-сервіс у `ML_TEI_MODE` проксіює на GPU без torch), LLM `qwen2.5:7b-instruct`
+> через ollama (OpenAI-сумісний). `pnpm smoke:ingest` дає справжні заземлені
+> україномовні відповіді з цитатами. Провайдер використовує JSON-mode для надійного
+> structured-виходу. Реальні/dev моделі — перемикання лише env, без змін коду.
+> Лишається до повного MVP: LLM-fallback екстракції специфікацій (рівень 4);
+> курируваний Source Registry з верифікацією доменів.
 
 **Фаза 2 — Достовірність і порівняння:**
 entity resolution + версіонування; онтологія атрибутів + compare-intent з детермінованим diff; merge queue UI; faithfulness-метрики; SSR-сторінки товарів.

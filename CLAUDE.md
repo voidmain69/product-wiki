@@ -20,6 +20,7 @@ pnpm --filter @wiki/api register-source <abs-path-to-source.json>         # ре
 cd services/ml && uv run uvicorn app:app --port 8091                      # ML-сервіс (Python, prod)
 ML_DEV_MODE=1 python -m uvicorn app:app --port 8091                       # ML dev (лексичні ембединги, без torch)
 pnpm smoke:ingest                                                         # E2E: ingest → index → retrieve → chat (якщо ML up)
+pnpm smoke:real <source.json> <product-url>                               # bounded live ingest ОДНІЄЇ реальної сторінки (manual, не CI)
 ```
 
 > Dev-режими без GPU/LLM: `ML_DEV_MODE=1` (лексичні ембединги) і `LLM_DEV_MODE=1`
