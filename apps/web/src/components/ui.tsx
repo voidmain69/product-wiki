@@ -67,7 +67,6 @@ const navLink = {
 /** Плейсхолдер/фото товару (діагональна штриховка як у дизайні). */
 export function Thumb({ src, size, radius = 12 }: { src: string | null; size: number; radius?: number }) {
   if (src) {
-    // eslint-disable-next-line @next/next/no-img-element
     return <img src={src} alt="" width={size} height={size} style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", flex: "none", background: C.chip }} />;
   }
   return (

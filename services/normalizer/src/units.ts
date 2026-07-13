@@ -86,7 +86,7 @@ function asBool(s: string): boolean | null {
 
 // «число + одиниця» має бути ВСІМ рядком (з опційним префіксом) — інакше «10 в комплекті»
 // хибно дасть 10 V. Зайвий текст → лишаємо рядком (структурний випадок).
-const SCALAR = /^\s*(?:[<>≤≥~]|up\s+to|до|макс\.?|мін\.?|max|min|approx\.?|about|прибл\.?|близько|≈)?\s*(-?\d[\d\s ]*(?:[.,]\d+)?)\s*([%°″"'a-zа-яіїєґ]{1,6}\.?)?\s*$/i;
+const SCALAR = /^\s*(?:[<>≤≥~]|up\s+to|до|макс\.?|мін\.?|max|min|approx\.?|about|прибл\.?|близько|≈)?\s*(-?\d[\d\s]*(?:[.,]\d+)?)\s*([%°″"'a-zа-яіїєґ]{1,6}\.?)?\s*$/i;
 
 /** Розкодовує базові HTML-ентіті, що протікають з екстракції (&gt; &lt; &amp; &quot; &#nn;). */
 function decodeEntities(s: string): string {
@@ -107,14 +107,14 @@ export function normalizeValue(raw: string, unitHint?: string): Normalized {
 
   // діапазони (a–b, a~b, a/b) і габарити (a x b) — структурні, лишаємо рядком
   const core = s.replace(/[%°″"'a-zа-яіїєґ.\s]+$/i, "");
-  if (/\d[\s]*[xх×][\s]*\d/i.test(s) || /\d[\s ]*[–—~/][\s ]*\d/.test(core)) {
+  if (/\d[\s]*[xх×][\s]*\d/i.test(s) || /\d[\s]*[–—~/][\s]*\d/.test(core)) {
     return { value: s, unit: null };
   }
 
   const m = s.match(SCALAR);
   if (!m || !m[1]) return { value: s, unit: null };
 
-  const num = Number(m[1].replace(/[\s ]/g, "").replace(",", "."));
+  const num = Number(m[1].replace(/[\s]/g, "").replace(",", "."));
   if (Number.isNaN(num)) return { value: s, unit: null };
 
   const token = (m[2] ?? "").toLowerCase().replace(/\.$/, "");

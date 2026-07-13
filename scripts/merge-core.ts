@@ -5,15 +5,17 @@
  * scripts/merge-queue.ts (fuzzy-кандидати).
  */
 import { eq, inArray, sql } from "drizzle-orm";
+import type {
+  createDb} from "@wiki/db";
 import {
-  createDb,
   products,
   productAttributes,
   productTexts,
   productRevisions,
   pageSnapshots,
 } from "@wiki/db";
-import { EventBus, EventSubjects } from "@wiki/events";
+import type { EventBus} from "@wiki/events";
+import { EventSubjects } from "@wiki/events";
 import type { QdrantIndex } from "@wiki/retrieval";
 
 export type Db = ReturnType<typeof createDb>;

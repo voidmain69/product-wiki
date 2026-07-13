@@ -57,7 +57,7 @@ export async function fetchRelated(product: ProductDetail, limit = 6): Promise<P
   const primary = category
     ? await fetchProducts({ category, limit: limit + 1 })
     : { items: [], total: 0 };
-  let items = primary.items.filter((i) => i.productId !== product.productId);
+  const items = primary.items.filter((i) => i.productId !== product.productId);
   if (items.length < 3) {
     const byBrand = await fetchProducts({ brand: product.brand, limit: limit + 1 });
     const seen = new Set(items.map((i) => i.productId));
