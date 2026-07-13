@@ -4,5 +4,6 @@
   "entrypoints": ["https://www.logitech.com/sitemap_index.xml"],
   "urlPatterns": ["/products/"],
   "maxRps": 0.5,
-  "recrawlIntervalDays": 30
+  "recrawlIntervalDays": 30,
+  "lang": "en"
 }
