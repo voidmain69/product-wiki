@@ -1,4 +1,6 @@
+import { eq } from "drizzle-orm";
 import type { Database } from "@wiki/db";
+import { products, productRevisions, productAttributes, attributeOntology, pageSnapshots, chatQueries } from "@wiki/db";
 import type { LLMProvider } from "@wiki/llm";
 import { buildAnswerMessages } from "@wiki/llm";
 import type { MlClient, QdrantIndex } from "@wiki/retrieval";
@@ -74,7 +76,8 @@ export async function* runChat(
   if (candidates.length === 0) {
     for (const t of noDataMessage()) yield { type: "token", text: t };
     yield { type: "done" };
-    // TODO: залогувати no_results у chat_queries → сигнал scheduler-у розширити каталог
+    // Сигнал scheduler-у, куди розширювати каталог (попит без покриття).
+    await logQuery(db, ctx.sessionId, intent.intent, ctx.message, [], true);
     return;
   }
 
@@ -90,27 +93,37 @@ export async function* runChat(
     if (card) yield { type: "product_card", card };
   }
 
-  // 5. Генерація з цитатами (стрім)
+  // 5. Цитати: дедуп за джерелом ДО нумерації, щоб маркери [n] у відповіді LLM,
+  //    emitted-цитати і показ на фронті збігались 1:1. Заповнюємо назву та дату знімка.
+  const citeChunks: RetrievedChunk[] = [];
+  const seenUrl = new Set<string>();
+  for (const c of reranked) {
+    const url = c.sourceUrls[0] ?? "";
+    if (seenUrl.has(url)) continue;
+    seenUrl.add(url);
+    citeChunks.push(c);
+  }
   let idx = 0;
-  for (const chunk of reranked) {
+  for (const chunk of citeChunks) {
     idx++;
     yield {
       type: "citation",
       citation: {
         marker: idx,
         productId: chunk.productId,
-        productName: "", // заповнюється фронтом з product_card
+        productName: await productName(db, chunk.productId),
         sourceUrl: chunk.sourceUrls[0] ?? "",
-        snapshotDate: "",
+        snapshotDate: await snapshotDate(db, chunk.sourceUrls[0]),
       },
     };
   }
 
-  const messages = buildAnswerMessages(ctx.message, reranked);
+  const messages = buildAnswerMessages(ctx.message, citeChunks);
   for await (const token of llm.stream(messages, { temperature: 0.2 })) {
     yield { type: "token", text: token };
   }
   yield { type: "done" };
+  await logQuery(db, ctx.sessionId, intent.intent, ctx.message, [...seen], false);
 }
 
 async function rerank(
@@ -124,18 +137,64 @@ async function rerank(
 }
 
 async function buildProductCard(db: Database, productId: string) {
-  const { products } = await import("@wiki/db");
-  const { eq } = await import("drizzle-orm");
   const [p] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!p) return null;
+
+  let categoryPath: string[] = [];
+  let thumbnail: string | null = null;
+  if (p.currentRevisionId) {
+    const [rev] = await db
+      .select({ snapshot: productRevisions.snapshot })
+      .from(productRevisions)
+      .where(eq(productRevisions.id, p.currentRevisionId))
+      .limit(1);
+    const snap = rev?.snapshot as { categoryPath?: string[]; media?: { type: string; url: string }[] } | undefined;
+    categoryPath = snap?.categoryPath ?? [];
+    thumbnail = snap?.media?.find((m) => m.type === "image" && /^https?:\/\//.test(m.url))?.url ?? null;
+  }
+  const specs = await db
+    .select({ label: attributeOntology.label, value: productAttributes.valueRaw, unit: productAttributes.unitCanonical })
+    .from(productAttributes)
+    .innerJoin(attributeOntology, eq(productAttributes.attrKey, attributeOntology.key))
+    .where(eq(productAttributes.productId, productId))
+    .limit(4);
+
   return {
     productId: p.id,
     brand: p.brand,
     name: p.name,
-    categoryPath: [] as string[],
-    thumbnail: null,
-    keySpecs: [] as { label: string; value: string }[],
+    categoryPath,
+    thumbnail,
+    keySpecs: specs.map((s) => ({ label: s.label, value: `${s.value}${s.unit ? " " + s.unit : ""}` })),
   };
+}
+
+/** Назва товару для цитати (бренд + модель). */
+async function productName(db: Database, productId: string): Promise<string> {
+  const [p] = await db.select({ brand: products.brand, name: products.name }).from(products).where(eq(products.id, productId)).limit(1);
+  return p ? `${p.brand} ${p.name}` : "";
+}
+
+/** Дата свіжості даних цитати — з знімка сторінки-джерела. */
+async function snapshotDate(db: Database, url: string | undefined): Promise<string> {
+  if (!url) return "";
+  const [s] = await db.select({ at: pageSnapshots.fetchedAt }).from(pageSnapshots).where(eq(pageSnapshots.url, url)).limit(1);
+  return s ? s.at.toISOString() : "";
+}
+
+/** Аналітика попиту → сигнал scheduler-у (no_results = куди розширювати каталог). */
+async function logQuery(
+  db: Database,
+  sessionId: string,
+  intent: string,
+  queryText: string,
+  matchedProductIds: string[],
+  noResults: boolean,
+): Promise<void> {
+  await db
+    .insert(chatQueries)
+    .values({ sessionId, intent, queryText, matchedProductIds, noResults })
+    .catch(() => void 0); // аналітика best-effort, не ламає відповідь
 }
 
 function scopeMessage(): string[] {
