@@ -1,0 +1,42 @@
+# Dependabot: version updates для всіх екосистем монорепо.
+# Конфіг читається з default-гілки (main); version-update PR-и йдуть у develop
+# згідно з git-конвенціями проєкту. Security-оновлення GitHub завжди таргетить main.
+version: 2
+updates:
+  # pnpm-монорепо: один запис на корінь — Dependabot читає pnpm-lock.yaml
+  # і покриває всі workspace-пакети (packages/*, services/*, apps/*).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    target-branch: "develop"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # Python ML-сервіс (uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/services/ml"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    target-branch: "develop"
+    commit-message:
+      prefix: "chore(deps-ml)"
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions у workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    target-branch: "develop"
+    commit-message:
+      prefix: "chore(ci)"

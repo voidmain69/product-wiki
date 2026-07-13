@@ -427,6 +427,9 @@ importers:
       '@wiki/events':
         specifier: workspace:*
         version: link:../../packages/events
+      '@wiki/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       '@wiki/retrieval':
         specifier: workspace:*
         version: link:../../packages/retrieval

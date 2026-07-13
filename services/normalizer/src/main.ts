@@ -2,9 +2,11 @@ import { eq, sql } from "drizzle-orm";
 import { createDb, productDrafts, attributeOntology, outbox } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import { MlClient } from "@wiki/retrieval";
+import { createLLM } from "@wiki/llm";
 import type { EventOf } from "@wiki/contracts/events";
 import { normalizeValue, guessUnit } from "./units.js";
 import { OntologyVecCache } from "./ontology-embed.js";
+import { LabelTranslator } from "./label-translate.js";
 
 /**
  * Normalizer-воркер: споживає `draft.extracted`, канонізує одиниці та мапить
@@ -31,6 +33,22 @@ async function main() {
   );
   await ontologyCache.init(ontology.map((o) => ({ key: o.key, label: o.label })));
 
+  // Крос-мовна прокладка: мітку не-укр джерела перекладаємо українською ПЕРЕД матчингом
+  // (dense/rerank не зводять EN↔UK). LLM-переклад лише для не-uk драфтів, кешовано;
+  // помилка LLM → мітка лишається мовою джерела (best-effort).
+  const llm = createLLM();
+  const translator = new LabelTranslator(async (label) =>
+    llm.generate([
+      {
+        role: "system",
+        content:
+          "Ти перекладаєш короткі мітки характеристик товарів з будь-якої мови українською — БУКВАЛЬНО й точно, зберігаючи технічний сенс. Відповідай ЛИШЕ перекладеною міткою: без лапок, пояснень, крапки. " +
+          "Приклади: «Weight» → «Вага»; «Number of buttons» → «Кількість кнопок»; «Battery life» → «Час роботи від батареї»; «Sensor resolution» → «Роздільність сенсора».",
+      },
+      { role: "user", content: label },
+    ]),
+  );
+
   console.log("normalizer: підписка на", EventSubjects.DraftExtracted);
 
   await bus.subscribe(
@@ -49,7 +67,7 @@ async function main() {
       type Resolution =
         | { kind: "known"; key: string }
         | { kind: "alias"; key: string; rawKey: string }
-        | { kind: "provision"; key: string; rawKey: string; hint: string | null };
+        | { kind: "provision"; key: string; rawKey: string; label: string; hint: string | null };
       const resolutions = new Map<string, Resolution>();
       for (const a of rawAttrs) {
         const rawKey = a.key.trim();
@@ -60,12 +78,20 @@ async function main() {
           resolutions.set(lk, { kind: "known", key: known });
           continue;
         }
-        const matched = await ontologyCache.match(rawKey);
+        // не-укр мітку зводимо до української ПЕРЕД матчингом; оригінал лишиться alias-ом.
+        const canonLabel = await translator.toCanonical(rawKey, draft.lang);
+        // якщо переклад уже відомий у aliasIndex — беремо ключ напряму (без ML-матчу)
+        const knownByTr = canonLabel !== rawKey ? aliasIndex.get(canonLabel.toLowerCase()) : undefined;
+        if (knownByTr) {
+          resolutions.set(lk, { kind: "alias", key: knownByTr, rawKey });
+          continue;
+        }
+        const matched = await ontologyCache.match(canonLabel);
         resolutions.set(
           lk,
           matched
             ? { kind: "alias", key: matched.key, rawKey }
-            : { kind: "provision", key: slugKey(rawKey), rawKey, hint: guessUnit(rawKey) },
+            : { kind: "provision", key: slugKey(canonLabel), rawKey, label: canonLabel, hint: guessUnit(rawKey) ?? guessUnit(canonLabel) },
         );
       }
 
@@ -99,16 +125,18 @@ async function main() {
               aliasIndex.set(rawKey.toLowerCase(), r.key);
             } else if (r.kind === "provision") {
               // Авто-провіжн: невідома мітка (нижче порога матчу / ML недоступний) стає
-              // канонічним ключем. Без цього факт губиться (resolver пропускає null, а
-              // API робить INNER JOIN product_attributes × attribute_ontology).
+              // канонічним ключем. Канонічна мітка — УКРАЇНСЬКА (переклад), а оригінальна
+              // мітка джерела (напр. EN) йде alias-ом, щоб майбутні інжести зводились сюди.
               // unit-хінт одразу з мітки (guessUnit) — щоб «голі» числа теж мали одиницю.
+              const aliases = [...new Set([r.rawKey, r.label])];
               await tx
                 .insert(attributeOntology)
-                .values({ key: canonicalKey, label: rawKey, dataType: "string", unitCanonical: r.hint, aliases: [rawKey] })
+                .values({ key: canonicalKey, label: r.label, dataType: "string", unitCanonical: r.hint, aliases })
                 .onConflictDoNothing();
-              aliasIndex.set(rawKey.toLowerCase(), canonicalKey);
+              aliasIndex.set(r.rawKey.toLowerCase(), canonicalKey);
+              aliasIndex.set(r.label.toLowerCase(), canonicalKey);
               unitHint.set(canonicalKey, r.hint);
-              provisioned.push({ key: canonicalKey, label: rawKey });
+              provisioned.push({ key: canonicalKey, label: r.label });
             }
           }
           // одиниця з рядка має пріоритет; інакше — хінт ключа онтології
