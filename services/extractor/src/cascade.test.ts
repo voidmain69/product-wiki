@@ -54,6 +54,30 @@ describe("fromJsonLd — детермінований рівень екстра�
     expect(draft!.media.length).toBeGreaterThan(0);
   });
 
+  it("зрізає дубльований бренд із назви (ASUS-кейс), не чіпаючи бренд-підрядок", () => {
+    const mk = (name: string, brand: string) =>
+      `<script type="application/ld+json">${JSON.stringify({
+        "@type": "Product",
+        name,
+        brand,
+      })}</script>`;
+
+    // бренд дублюється як префікс → зрізаємо
+    expect(fromJsonLd(mk("ASUS TUF Gaming A15 (2024)", "ASUS"))!.name).toBe(
+      "TUF Gaming A15 (2024)",
+    );
+    expect(fromJsonLd(mk("ASUS TUF Gaming A15 (2024)", "ASUS"))!.brand).toBe("ASUS");
+
+    // бренд — частина слова (межа слова не збігається) → не чіпаємо
+    expect(fromJsonLd(mk("ASUSTeK Router", "ASUS"))!.name).toBe("ASUSTeK Router");
+
+    // назва не починається з бренду → без змін
+    expect(fromJsonLd(mk("MX Master 3S", "Logitech"))!.name).toBe("MX Master 3S");
+
+    // назва дорівнює бренду → не віддаємо порожнє ім'я
+    expect(fromJsonLd(mk("ASUS", "ASUS"))!.name).toBe("ASUS");
+  });
+
   it("повертає null, коли на сторінці немає Product", () => {
     expect(fromJsonLd("<html><body><h1>Про компанію</h1></body></html>")).toBeNull();
   });

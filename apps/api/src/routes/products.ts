@@ -42,11 +42,14 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
         .innerJoin(attributeOntology, eq(productAttributes.attrKey, attributeOntology.key))
         .where(eq(productAttributes.productId, r.productId))
         .limit(3);
+      // categoryPath і фото — зі знімка поточної ревізії (денормалізовано в resolver)
+      const snap = await revisionSnapshot(db, r.revisionId);
       items.push({
         productId: r.productId,
         brand: r.brand,
         name: r.name,
-        categoryPath: categoryFromRevision(r.revisionId, db),
+        categoryPath: snap?.categoryPath ?? [],
+        thumbnail: firstImage(snap?.media),
         keySpecs: specs.map((s) => ({ label: s.label, value: `${s.value}${s.unit ? " " + s.unit : ""}` })),
       });
     }
@@ -89,15 +92,11 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
       : [];
     const snapById = new Map(snaps.map((s) => [s.id, s]));
 
-    let categoryPath: string[] = [];
-    if (p.currentRevisionId) {
-      const [rev] = await db
-        .select({ snapshot: productRevisions.snapshot })
-        .from(productRevisions)
-        .where(eq(productRevisions.id, p.currentRevisionId))
-        .limit(1);
-      categoryPath = ((rev?.snapshot as { categoryPath?: string[] })?.categoryPath) ?? [];
-    }
+    const snap = await revisionSnapshot(db, p.currentRevisionId);
+    const categoryPath = snap?.categoryPath ?? [];
+    const images = (snap?.media ?? [])
+      .filter((m) => m.type === "image" && /^https?:\/\//.test(m.url))
+      .map((m) => m.url);
 
     const detail: ProductDetail = {
       productId: p.id,
@@ -107,6 +106,7 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
       gtin: p.gtin,
       categoryPath,
       updatedAt: p.updatedAt.toISOString(),
+      images,
       attributes: attrRows.flatMap((a) => {
         const s = snapById.get(a.snapId);
         return s
@@ -123,9 +123,26 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
   });
 }
 
-/** categoryPath зі snapshot ревізії (синхронно недоступно — заглушка на список). */
-function categoryFromRevision(_revisionId: string | null, _db: ReturnType<typeof createDb>): string[] {
-  // для списку тримаємо порожнім, щоб не робити N+1 запит на ревізію;
-  // повний categoryPath — на сторінці деталей. TODO: денормалізувати в products.
-  return [];
+interface RevisionSnapshot {
+  categoryPath?: string[];
+  media?: { type: string; url: string }[];
+}
+
+/** Знімок поточної ревізії (denormalized): categoryPath, media тощо. */
+async function revisionSnapshot(
+  db: ReturnType<typeof createDb>,
+  revisionId: string | null,
+): Promise<RevisionSnapshot | null> {
+  if (!revisionId) return null;
+  const [rev] = await db
+    .select({ snapshot: productRevisions.snapshot })
+    .from(productRevisions)
+    .where(eq(productRevisions.id, revisionId))
+    .limit(1);
+  return (rev?.snapshot as RevisionSnapshot) ?? null;
+}
+
+/** Перше валідне http-зображення з медіа знімка. */
+function firstImage(media: { type: string; url: string }[] | undefined): string | null {
+  return media?.find((m) => m.type === "image" && /^https?:\/\//.test(m.url))?.url ?? null;
 }

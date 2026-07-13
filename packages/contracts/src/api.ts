@@ -17,6 +17,13 @@ export const ChatRequest = z.object({
   message: z.string().min(1).max(2000),
   // необов'язкова прив'язка до товару (напр. "запитати про цей товар")
   productContextId: Id.optional(),
+  // явні фільтри з UI (чипи композера): звужують retrieval поверх intent-фільтрів
+  filters: z
+    .object({
+      brand: z.string().optional(),
+      categoryPath: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 export type ChatRequest = z.infer<typeof ChatRequest>;
 
@@ -89,6 +96,7 @@ export const ProductListItem = z.object({
   brand: z.string(),
   name: z.string(),
   categoryPath: z.array(z.string()),
+  thumbnail: z.string().url().nullable(),
   keySpecs: z.array(z.object({ label: z.string(), value: z.string() })),
 });
 export type ProductListItem = z.infer<typeof ProductListItem>;
@@ -111,6 +119,7 @@ export const ProductDetail = z.object({
   gtin: z.string().nullable(),
   categoryPath: z.array(z.string()),
   updatedAt: z.string(),
+  images: z.array(z.string().url()),
   attributes: z.array(ProductDetailAttribute),
   texts: z.array(z.object({ section: z.string(), text: z.string(), sourceUrl: z.string().url() })),
   sources: z.array(z.object({ url: z.string().url(), fetchedAt: z.string() })),

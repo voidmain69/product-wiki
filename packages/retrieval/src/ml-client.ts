@@ -22,8 +22,27 @@ export class MlClient {
     return (await res.json()) as DenseSparse[];
   }
 
-  /** Rerank: повертає індекси docs у порядку релевантності + скор. */
+  /**
+   * Rerank: повертає індекси docs у порядку релевантності + скор.
+   * TEI /rerank має ліміт client-batch (типово 32) і відповідає 500 на більший
+   * батч, тож ділимо на частини і зливаємо результати за скором (крос-енкодерні
+   * скори абсолютні для даного query, тому порівнянні між батчами). Індекси
+   * повертаємо в координатах вхідного `docs`.
+   */
   async rerank(query: string, docs: string[], topK: number): Promise<{ index: number; score: number }[]> {
+    const MAX_BATCH = 32;
+    if (docs.length <= MAX_BATCH) return this.rerankBatch(query, docs, topK);
+
+    const merged: { index: number; score: number }[] = [];
+    for (let offset = 0; offset < docs.length; offset += MAX_BATCH) {
+      const slice = docs.slice(offset, offset + MAX_BATCH);
+      const part = await this.rerankBatch(query, slice, slice.length);
+      for (const r of part) merged.push({ index: offset + r.index, score: r.score });
+    }
+    return merged.sort((a, b) => b.score - a.score).slice(0, topK);
+  }
+
+  private async rerankBatch(query: string, docs: string[], topK: number): Promise<{ index: number; score: number }[]> {
     const res = await fetch(`${this.baseUrl}/rerank`, {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -1,0 +1,20 @@
+{
+  "name": "ASUS Україна",
+  "domains": ["www.asus.com", "asus.com"],
+  "entrypoints": [
+    "https://www.asus.com/ua-ua/sitemap/ua-ua1.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua2.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua3.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua4.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua5.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua6.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua7.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua8.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua9.xml",
+    "https://www.asus.com/ua-ua/sitemap/ua-ua10.xml"
+  ],
+  "urlPatterns": ["/ua-ua/[^/]+/[^/]+/[^/]+/[^/]+/$"],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30,
+  "engineHint": "static"
+}
