@@ -174,7 +174,6 @@ function Gallery({ images }: { images: string[] }) {
     <div style={{ width: 320, flex: "none", maxWidth: "100%" }}>
       <div style={{ border: `1px solid ${C.borderPanel}`, borderRadius: 16, overflow: "hidden", background: C.panel, aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {main ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img src={main} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         ) : (
           <Thumb src={null} size={180} radius={0} />

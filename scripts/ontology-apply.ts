@@ -73,7 +73,6 @@ async function main() {
   console.log(`• ${clusters.length} кластер(ів) на злиття${DRY ? " (DRY)" : ""}`);
 
   const affected = new Set<string>();
-  let repointed = 0;
   let mergedKeys = 0;
 
   // ── Крок 1: re-point атрибутів + злиття aliases + видалення dup-ключів ────
@@ -86,7 +85,6 @@ async function main() {
 
       console.log(`  ${dup} → ${target}  (${prodRows.length} товар(ів))`);
       if (DRY) {
-        repointed += prodRows.length;
         mergedKeys++;
         continue;
       }
@@ -114,7 +112,6 @@ async function main() {
         // 4. видалення dup-ключа (FK product_attributes уже перекинуто на target)
         if (d) await tx.execute(sql`delete from ${attributeOntology} where key = ${dup}`);
       });
-      repointed += prodRows.length;
       mergedKeys++;
     }
   }
