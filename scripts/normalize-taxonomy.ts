@@ -38,7 +38,6 @@ async function main() {
   `)) as unknown as { brand: string | null; n: number }[];
 
   let brandUpdated = 0;
-  let brandSkipped = 0;
   for (const r of brandRows) {
     const from = r.brand ?? "";
     const to = normalizeBrand(from);
@@ -61,8 +60,6 @@ async function main() {
     `)) as unknown as { count?: number };
     if (res.count) console.log(`  brand: (порожній HDP) → "Philips" (${res.count})`);
   }
-  brandSkipped = 0; // (порахуємо нижче через залишкові суб-бренди)
-
   // ── 2. Категорії ─────────────────────────────────────────────────────────
   const catRows = await db
     .select({ id: products.id, cp: products.categoryPath })
@@ -84,7 +81,6 @@ async function main() {
     select brand, count(*)::int n from ${products} where status='active' and lower(brand) in ('avent','philips fidelio','evnia') group by brand
   `)) as unknown as { brand: string; n: number }[];
   if (stillSub.length) {
-    for (const s of stillSub) { brandSkipped += s.n; }
     console.log(`⚠ лишились суб-бренди (колізія назв із Philips): ${stillSub.map((s) => `${s.brand}(${s.n})`).join(", ")}`);
   }
   if (!DRY) console.log("→ для Qdrant-фільтра категорій потрібен reindex (Етап E).");
