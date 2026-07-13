@@ -66,6 +66,13 @@ export class QdrantIndex {
     await this.api(`/collections/${COLLECTION}/points?wait=true`, "PUT", { points });
   }
 
+  /** Видалити ВСІ чанки товару (напр. коли товар злито в дубль → merged_away). */
+  async deleteProduct(productId: string): Promise<void> {
+    await this.api(`/collections/${COLLECTION}/points/delete?wait=true`, "POST", {
+      filter: { must: [{ key: "productId", match: { value: productId } }] },
+    });
+  }
+
   /** Видалити всі чанки товару зі старих ревізій. */
   async deleteStale(productId: string, keepRevisionId: string): Promise<void> {
     await this.api(`/collections/${COLLECTION}/points/delete?wait=true`, "POST", {

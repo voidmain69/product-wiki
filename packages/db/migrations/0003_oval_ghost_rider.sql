@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_product_brand_name_active" ON "products" USING btree ("brand","name") WHERE status = 'active';
