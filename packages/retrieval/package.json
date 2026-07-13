@@ -13,7 +13,7 @@
     "@wiki/contracts": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "typescript": "^6.0.3",
     "rimraf": "^6.0.1"
   }
 }
