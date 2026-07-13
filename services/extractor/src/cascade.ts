@@ -231,6 +231,36 @@ function parsePhilipsPrx(body: unknown): RawAttr[] {
   return out;
 }
 
+/**
+ * Спец-таблиця в секції характеристик (Kärcher: `<div data-anchor="Специфікації">…
+ * <table class="table"><tr><td>Мітка</td><td>Значення</td></tr>`). Обмежуємось секціями,
+ * чий data-anchor вказує на характеристики, щоб не хапати сторонні 2-колонкові таблиці
+ * (аксесуари/запчастини). Значення дослівні зі сторінки — self-check зайвий.
+ */
+export function fromSectionSpecTable(html: string): RawAttr[] {
+  const $ = cheerio.load(html);
+  const isSpecSection = /специфікац|характеристик|технічні дан|technical data|specification/i;
+  const seen = new Set<string>();
+  const attrs: RawAttr[] = [];
+  $("[data-anchor]").each((_, section) => {
+    if (!isSpecSection.test(String($(section).attr("data-anchor") ?? ""))) return;
+    $(section)
+      .find("table tr")
+      .each((__, tr) => {
+        const tds = $(tr).find("td");
+        if (tds.length !== 2) return;
+        const key = $(tds[0]).text().replace(/\s+/g, " ").trim();
+        const value = $(tds[1]).text().replace(/\s+/g, " ").trim();
+        if (!key || !value) return;
+        const k = key.toLowerCase();
+        if (seen.has(k)) return;
+        seen.add(k);
+        attrs.push({ key, value });
+      });
+  });
+  return attrs.length >= 3 ? attrs : [];
+}
+
 /** schema.org BreadcrumbList → { назва товару (останній рівень), категорія }. */
 export function fromBreadcrumb(html: string): { name: string; categoryPath: string[] } | null {
   const $ = cheerio.load(html);
@@ -271,7 +301,7 @@ function findByType(node: unknown, type: string): Record<string, unknown> | null
 }
 
 /** Бренд із хосту курируваного джерела (spec-сторінка ASUS не має Product-JSON-LD). */
-const BRAND_BY_HOST: Record<string, string> = { "asus.com": "ASUS" };
+const BRAND_BY_HOST: Record<string, string> = { "asus.com": "ASUS", "karcher.com": "Kärcher" };
 function brandFromHost(url: string): string {
   try {
     const host = new URL(url).host.replace(/^www\./, "");
@@ -336,14 +366,16 @@ export async function runCascade(
   input: ExtractInput,
   llm: LLMProvider,
 ): Promise<ProductDraft | null> {
-  // Спец-характеристики — детерміновано, з трьох джерел:
+  // Спец-характеристики — детерміновано, з кількох джерел:
   //   • <BR>-блок + rowTable-DOM (ASUS /techspec/): монітори / мат.плати / ноутбуки / GPU;
+  //   • секційна spec-таблиця (Kärcher `data-anchor="Специфікації"` → 2-колонкова таблиця);
   //   • перехоплені API-payload-и (Philips PRX) — рівень 2 каскаду.
   //   Тягнемо завжди й доповнюємо ними будь-який рівень (JSON-LD зазвичай має лише name/brand).
-  const specAttrs = mergeAttrs(
+  const htmlSpec = mergeAttrs(
     mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html)),
-    fromApiPayloads(input.apiPayloads),
+    fromSectionSpecTable(input.html),
   );
+  const specAttrs = mergeAttrs(htmlSpec, fromApiPayloads(input.apiPayloads));
 
   // 1. JSON-LD (Product) + мерж спец-блоку. Категорію, якщо її нема в Product,
   //    беремо з BreadcrumbList (Philips: JSON-LD Product без category).

@@ -1,0 +1,9 @@
+{
+  "name": "Kärcher Україна",
+  "domains": ["www.karcher.com"],
+  "entrypoints": ["https://www.karcher.com/ua-uk/sitemap.xml"],
+  "urlPatterns": ["^https://www\\.karcher\\.com/ua-uk/.+[-/]\\d{6,}\\.html$"],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30,
+  "engineHint": "static"
+}

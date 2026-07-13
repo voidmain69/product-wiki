@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { fromJsonLd, fromApiPayloads } from "./cascade.js";
+import { fromJsonLd, fromApiPayloads, fromSectionSpecTable } from "./cascade.js";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dirname, "__fixtures__", name), "utf8");
@@ -126,5 +126,35 @@ describe("fromApiPayloads — рівень 2: Philips PRX .specification", () =>
     expect(fromApiPayloads([])).toEqual([]);
     expect(fromApiPayloads([{ body: { unrelated: true } }])).toEqual([]);
     expect(fromApiPayloads([null, { nope: 1 }])).toEqual([]);
+  });
+});
+
+describe("fromSectionSpecTable — рівень 3: секційна spec-таблиця (Kärcher)", () => {
+  const karcher = `
+    <div data-anchor="Опис"><table class="table"><tr><td>не</td><td>спека</td></tr></table></div>
+    <div data-anchor="Специфікації">
+      <h3>Технічні характеристики</h3>
+      <table class="table">
+        <tr><td>Напруга   (В)</td><td>
+          220 - 240 </td></tr>
+        <tr><td>Частота (Гц)</td><td>50 - 60</td></tr>
+        <tr><td>Тиск (бар/МПа)</td><td>20 - макс. 110 / 2 - макс. 11</td></tr>
+      </table>
+    </div>`;
+
+  it("витягує пари td[0]/td[1] лише зі спец-секції, згортаючи пробіли", () => {
+    const attrs = fromSectionSpecTable(karcher);
+    expect(attrs).toContainEqual({ key: "Напруга (В)", value: "220 - 240" });
+    expect(attrs).toContainEqual({ key: "Частота (Гц)", value: "50 - 60" });
+    expect(attrs).toHaveLength(3);
+    // таблиця із секції "Опис" не потрапляє
+    expect(attrs.find((a) => a.key === "не")).toBeUndefined();
+  });
+
+  it("повертає [] коли спец-секції нема або пар мало", () => {
+    expect(fromSectionSpecTable("<div><table><tr><td>a</td><td>b</td></tr></table></div>")).toEqual([]);
+    expect(
+      fromSectionSpecTable(`<div data-anchor="Специфікації"><table><tr><td>k</td><td>v</td></tr></table></div>`),
+    ).toEqual([]); // лише 1 пара (<3)
   });
 });
