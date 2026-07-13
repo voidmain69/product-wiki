@@ -41,25 +41,31 @@ async function main() {
       product.id = productId;
       product.revisionId = revisionId;
 
-      // usecase-чанк: LLM один раз описує "для кого і яких потреб" з фактів картки
-      const usecase = await llm
-        .generate([
-          {
-            role: "system",
-            content:
-              "На основі фактів про товар опиши 2-3 реченнями, для кого і яких потреб він підходить. " +
-              "Спирайся ЛИШЕ на надані характеристики, без вигадок і оцінок.",
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              name: product.name,
-              category: product.categoryPath,
-              attributes: product.attributes.map((a) => ({ k: a.key, v: a.valueRaw })),
-            }),
-          },
-        ])
-        .catch(() => undefined);
+      // usecase-чанк: LLM один раз описує "для кого і яких потреб" з фактів картки.
+      // Коштує один LLM-виклик на товар — для масового бекфілу його можна пропустити
+      // (INDEXER_SKIP_USECASE=1): overview/spec/feature несуть основний сигнал пошуку,
+      // а usecase доіндексовується пізніше окремим повільним проходом.
+      const usecase =
+        process.env.INDEXER_SKIP_USECASE === "1"
+          ? undefined
+          : await llm
+              .generate([
+                {
+                  role: "system",
+                  content:
+                    "На основі фактів про товар опиши 2-3 реченнями, для кого і яких потреб він підходить. " +
+                    "Спирайся ЛИШЕ на надані характеристики, без вигадок і оцінок.",
+                },
+                {
+                  role: "user",
+                  content: JSON.stringify({
+                    name: product.name,
+                    category: product.categoryPath,
+                    attributes: product.attributes.map((a) => ({ k: a.key, v: a.valueRaw })),
+                  }),
+                },
+              ])
+              .catch(() => undefined);
 
       const chunks = buildChunks(product, usecase);
       await qdrant.upsertChunks(chunks);

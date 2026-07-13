@@ -55,8 +55,8 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
             <tr key={a.key} style={{ borderBottom: "1px solid #22272e" }}>
               <td style={{ padding: "8px 0", color: "#8b93a1", width: "40%" }}>{a.label}</td>
               <td style={{ padding: "8px 0" }}>
-                {a.value}
-                {a.unit ? ` ${a.unit}` : ""}
+                {/* valueRaw уже містить одиницю; дописуємо unit лише для «голого» числа */}
+                {/^[\d.,\s-]+$/.test(a.value.trim()) && a.unit ? `${a.value} ${a.unit}` : a.value}
               </td>
               <td style={{ padding: "8px 0", textAlign: "right" }}>
                 <a
