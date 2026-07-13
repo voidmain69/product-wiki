@@ -102,7 +102,8 @@ async function main() {
           await tx.insert(productTexts).values({
             productId,
             section: d.section,
-            lang: "uk",
+            // Мова джерела з драфта; легасі-драфти без мови → BC-дефолт "uk".
+            lang: draft.lang ?? "uk",
             text: d.text,
             sourceSnapshotId: draft.snapshotId,
           });
