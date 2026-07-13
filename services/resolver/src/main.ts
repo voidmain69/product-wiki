@@ -12,6 +12,7 @@ import {
 } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
+import { normalizeBrand, normalizeCategoryPath } from "./taxonomy.js";
 
 /**
  * Resolver-воркер: споживає `draft.normalized`, робить entity resolution
@@ -33,13 +34,17 @@ async function main() {
       const [draft] = await db.select().from(productDrafts).where(eq(productDrafts.id, draftId)).limit(1);
       if (!draft || !draft.normalized) return;
 
+      // Нормалізація таксономії (Етап D): суб-бренд → материнський (Avent→Philips),
+      // щоб і entity-resolution, і фасет вендорів працювали на канонічному бренді.
+      const brand = normalizeBrand(draft.brand);
+
       // 1. Exact match: GTIN → brand+MPN → URL товару → brand+name
       const [snap] = await db
         .select({ url: pageSnapshots.url })
         .from(pageSnapshots)
         .where(eq(pageSnapshots.id, draft.snapshotId))
         .limit(1);
-      const existing = await findExisting(db, draft.brand, draft.mpn, draft.gtin, draft.name, snap?.url ?? null);
+      const existing = await findExisting(db, brand, draft.mpn, draft.gtin, draft.name, snap?.url ?? null);
 
       const revisionId = await db.transaction(async (tx) => {
         let productId = existing?.id;
@@ -50,7 +55,7 @@ async function main() {
           const inserted = await tx
             .insert(products)
             .values({
-              brand: draft.brand,
+              brand,
               name: draft.name,
               mpn: draft.mpn ?? null,
               gtin: draft.gtin ?? null,
@@ -64,7 +69,7 @@ async function main() {
             const [ex] = await tx
               .select({ id: products.id })
               .from(products)
-              .where(and(eq(products.brand, draft.brand), eq(products.name, draft.name), eq(products.status, "active")))
+              .where(and(eq(products.brand, brand), eq(products.name, draft.name), eq(products.status, "active")))
               .limit(1);
             productId = ex!.id;
           }
@@ -110,9 +115,10 @@ async function main() {
         }
 
         // append-only revision — денормалізований знімок канонічної сутності.
-        // categoryPath беремо з крихт джерела (draft), доки нема власної таксономії.
+        // categoryPath — нормалізовані крихти джерела (Етап D: без серій/шуму, композити
+        // розбито, дедуп) для чистого фасета категорій.
         const snapshot = await buildSnapshot(tx, productId);
-        snapshot.categoryPath = (draft.categoryRaw as string[]) ?? [];
+        snapshot.categoryPath = normalizeCategoryPath(draft.categoryRaw as string[]);
         // медіа (фото товару) — з крихт джерела; денормалізуємо в знімок ревізії,
         // щоб картки/вікі показували реальні зображення без окремої таблиці.
         snapshot.media = (draft.media as { type: string; url: string }[]) ?? [];
