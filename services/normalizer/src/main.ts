@@ -28,14 +28,34 @@ async function main() {
       if (!draft) return;
 
       const rawAttrs = draft.attributesRaw as { key: string; value: string; unit?: string }[];
-      const normalized = rawAttrs.map((a) => {
-        const canonicalKey = aliasIndex.get(a.key.toLowerCase().trim());
-        const { value, unit } = normalizeValue(a.value, a.unit);
-        return { rawKey: a.key, canonicalKey: canonicalKey ?? null, value, unit, valueRaw: a.value };
-      });
-      // невідомі ключі → TODO: insert у чергу пропозицій онтології
 
       await db.transaction(async (tx) => {
+        const normalized: {
+          rawKey: string;
+          canonicalKey: string;
+          value: number | string | boolean;
+          unit: string | null;
+          valueRaw: string;
+        }[] = [];
+        for (const a of rawAttrs) {
+          const rawKey = a.key.trim();
+          let canonicalKey = aliasIndex.get(rawKey.toLowerCase());
+          if (!canonicalKey) {
+            // Авто-провіжн онтології: невідома мітка виробника стає канонічним ключем
+            // (модерація/злиття синонімів — TODO merge_queue). Без цього факт губиться:
+            // resolver пропускає canonicalKey=null, а API робить INNER JOIN
+            // product_attributes × attribute_ontology (мітка для показу).
+            canonicalKey = slugKey(rawKey);
+            await tx
+              .insert(attributeOntology)
+              .values({ key: canonicalKey, label: rawKey, dataType: "string", aliases: [rawKey] })
+              .onConflictDoNothing();
+            aliasIndex.set(rawKey.toLowerCase(), canonicalKey);
+          }
+          const { value, unit } = normalizeValue(a.value, a.unit);
+          normalized.push({ rawKey, canonicalKey, value, unit, valueRaw: a.value });
+        }
+
         await tx
           .update(productDrafts)
           .set({ normalized: true, attributesRaw: normalized })
@@ -50,7 +70,7 @@ async function main() {
         });
       });
 
-      console.log(`normalized draft ${draftId} (${normalized.length} attrs)`);
+      console.log(`normalized draft ${draftId} (${rawAttrs.length} attrs)`);
     },
   );
 
@@ -58,6 +78,19 @@ async function main() {
     await bus.drain();
     process.exit(0);
   });
+}
+
+/** Стабільний ключ онтології з мітки виробника (кирилицю лишаємо — Postgres text PK). */
+function slugKey(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  if (slug) return slug;
+  let h = 0;
+  for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0;
+  return `attr_${h.toString(36)}`;
 }
 
 function buildAliasIndex(ontology: { key: string; aliases: string[] | null }[]): Map<string, string> {
