@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { fromJsonLd } from "./cascade.js";
+import { fromJsonLd, fromApiPayloads } from "./cascade.js";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dirname, "__fixtures__", name), "utf8");
@@ -85,5 +85,46 @@ describe("fromJsonLd — детермінований рівень екстра�
   it("не падає на битому JSON-LD", () => {
     const html = `<script type="application/ld+json">{ broken json }</script>`;
     expect(fromJsonLd(html)).toBeNull();
+  });
+});
+
+describe("fromApiPayloads — рівень 2: Philips PRX .specification", () => {
+  const prx = (chapters: unknown) => [
+    { requestUrl: "https://www.philips.ua/prx/product/B2C/uk_UA/CONSUMER/products/HR3660_55.specification", method: "GET", status: 200, body: { success: true, data: { csChapter: chapters } } },
+  ];
+
+  it("розгортає csChapter→csItem→csValue у пари атрибутів", () => {
+    const attrs = fromApiPayloads(
+      prx([
+        { csChapterName: "Технічні характеристики", csItem: [{ csItemName: "Ємність пляшки", csValue: [{ csValueName: "0,6 л" }] }] },
+        { csChapterName: "Покриття", csItem: [{ csItemName: "Матеріал чаші", csValue: [{ csValueName: "Пластик" }] }] },
+      ]),
+    );
+    expect(attrs).toContainEqual({ key: "Ємність пляшки", value: "0,6 л" });
+    expect(attrs).toContainEqual({ key: "Матеріал чаші", value: "Пластик" });
+  });
+
+  it("зливає кілька значень одного атрибута через кому", () => {
+    const attrs = fromApiPayloads(
+      prx([{ csChapterName: "Загальні", csItem: [{ csItemName: "Кольори", csValue: [{ csValueName: "Чорний" }, { csValueName: "Сірий" }] }] }]),
+    );
+    expect(attrs).toContainEqual({ key: "Кольори", value: "Чорний, Сірий" });
+  });
+
+  it("дедуплікує повторні мітки й ігнорує порожні значення", () => {
+    const attrs = fromApiPayloads(
+      prx([
+        { csItem: [{ csItemName: "Вага", csValue: [{ csValueName: "1 кг" }] }, { csItemName: "Вага", csValue: [{ csValueName: "2 кг" }] }] },
+        { csItem: [{ csItemName: "Порожнє", csValue: [{ csValueName: "" }] }] },
+      ]),
+    );
+    expect(attrs.filter((a) => a.key === "Вага")).toHaveLength(1);
+    expect(attrs.find((a) => a.key === "Порожнє")).toBeUndefined();
+  });
+
+  it("повертає [] на чужих/порожніх payload-ах", () => {
+    expect(fromApiPayloads([])).toEqual([]);
+    expect(fromApiPayloads([{ body: { unrelated: true } }])).toEqual([]);
+    expect(fromApiPayloads([null, { nope: 1 }])).toEqual([]);
   });
 });

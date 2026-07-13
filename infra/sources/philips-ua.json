@@ -1,0 +1,11 @@
+{
+  "name": "Philips Україна",
+  "domains": ["www.philips.ua", "philips.ua"],
+  "entrypoints": [
+    "https://www.philips.ua/prx/sitemap-B2C-uk_UA-products-index.xml"
+  ],
+  "urlPatterns": ["/c-p/[^/]+/[^/]+$"],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30,
+  "engineHint": "api-replay"
+}

@@ -185,6 +185,52 @@ export function fromSpecTable(html: string): RawAttr[] {
   return attrs.length >= 3 ? attrs : [];
 }
 
+/* ── Рівень 2: перехоплені API-payload-и ───────────────────────────────── */
+
+/**
+ * Атрибути з перехоплених API-викликів (apiPayloads снапшота). Поки що —
+ * формат Philips PRX (`GET .../products/<CTN>.specification`): дерево
+ * `data.csChapter[].csItem[].csItemName` = мітка, `csValue[].csValueName` = значення
+ * (кілька значень зливаємо через ", "). Значення дослівні з API → self-check зайвий.
+ */
+export function fromApiPayloads(payloads: unknown[]): RawAttr[] {
+  const seen = new Set<string>();
+  const attrs: RawAttr[] = [];
+  for (const cap of payloads ?? []) {
+    const body = (cap as { body?: unknown } | null)?.body;
+    for (const pair of parsePhilipsPrx(body)) {
+      const k = pair.key.toLowerCase().trim();
+      if (!pair.key || !pair.value || seen.has(k)) continue;
+      seen.add(k);
+      attrs.push(pair);
+    }
+  }
+  return attrs;
+}
+
+function parsePhilipsPrx(body: unknown): RawAttr[] {
+  const data = (body as { data?: { csChapter?: unknown } } | null)?.data;
+  const chapters = data?.csChapter;
+  if (!Array.isArray(chapters)) return [];
+  const out: RawAttr[] = [];
+  for (const ch of chapters) {
+    const items = (ch as { csItem?: unknown })?.csItem;
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const rec = item as { csItemName?: unknown; csValue?: unknown };
+      const key = String(rec.csItemName ?? "").trim();
+      const values = Array.isArray(rec.csValue)
+        ? (rec.csValue as { csValueName?: unknown }[])
+            .map((v) => String(v?.csValueName ?? "").trim())
+            .filter(Boolean)
+        : [];
+      const value = values.join(", ");
+      if (key && value) out.push({ key, value });
+    }
+  }
+  return out;
+}
+
 /** schema.org BreadcrumbList → { назва товару (останній рівень), категорія }. */
 export function fromBreadcrumb(html: string): { name: string; categoryPath: string[] } | null {
   const $ = cheerio.load(html);
@@ -290,15 +336,28 @@ export async function runCascade(
   input: ExtractInput,
   llm: LLMProvider,
 ): Promise<ProductDraft | null> {
-  // Спец-характеристики — детерміновано, двома форматами ASUS /techspec/:
-  //   <BR>-блок (монітори) + rowTable-DOM (мат.плати/ноутбуки/GPU). Тягнемо завжди й
-  //   доповнюємо ними будь-який рівень (JSON-LD зазвичай має лише name/brand).
-  const specAttrs = mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html));
+  // Спец-характеристики — детерміновано, з трьох джерел:
+  //   • <BR>-блок + rowTable-DOM (ASUS /techspec/): монітори / мат.плати / ноутбуки / GPU;
+  //   • перехоплені API-payload-и (Philips PRX) — рівень 2 каскаду.
+  //   Тягнемо завжди й доповнюємо ними будь-який рівень (JSON-LD зазвичай має лише name/brand).
+  const specAttrs = mergeAttrs(
+    mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html)),
+    fromApiPayloads(input.apiPayloads),
+  );
 
-  // 1. JSON-LD (Product) + мерж спец-блоку
+  // 1. JSON-LD (Product) + мерж спец-блоку. Категорію, якщо її нема в Product,
+  //    беремо з BreadcrumbList (Philips: JSON-LD Product без category).
   const jsonld = fromJsonLd(input.html);
   if (jsonld && jsonld.name) {
-    return finalize(input, { ...jsonld, attributesRaw: mergeAttrs(jsonld.attributesRaw, specAttrs) }, "jsonld", 0.95);
+    const categoryRaw = jsonld.categoryRaw.length
+      ? jsonld.categoryRaw
+      : fromBreadcrumb(input.html)?.categoryPath ?? [];
+    return finalize(
+      input,
+      { ...jsonld, categoryRaw, attributesRaw: mergeAttrs(jsonld.attributesRaw, specAttrs) },
+      "jsonld",
+      0.95,
+    );
   }
 
   // 2. API payloads (спрощено: якщо є перехоплений JSON із полем name)
