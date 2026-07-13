@@ -6,7 +6,12 @@ import type { ChatStreamEvent } from "@wiki/contracts";
  */
 export async function* streamChat(
   apiUrl: string,
-  body: { message: string; sessionId?: string; productContextId?: string },
+  body: {
+    message: string;
+    sessionId?: string;
+    productContextId?: string;
+    filters?: { brand?: string; categoryPath?: string[] };
+  },
 ): AsyncGenerator<ChatStreamEvent> {
   const res = await fetch(`${apiUrl}/chat`, {
     method: "POST",

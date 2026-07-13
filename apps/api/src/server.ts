@@ -50,7 +50,7 @@ async function main() {
       reply.code(400);
       return { error: parsed.error.flatten() };
     }
-    const { message, productContextId } = parsed.data;
+    const { message, productContextId, filters } = parsed.data;
     const sessionId = parsed.data.sessionId ?? randomUUID();
     const history = await sessions.getHistory(sessionId);
 
@@ -78,6 +78,7 @@ async function main() {
         message,
         history,
         productContextId,
+        filters,
       })) {
         if (event.type === "token") answer += event.text;
         send(event);

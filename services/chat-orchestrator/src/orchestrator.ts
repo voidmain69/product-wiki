@@ -21,6 +21,7 @@ export interface ChatContext {
   message: string;
   history: { role: string; content: string }[];
   productContextId?: string;
+  filters?: { brand?: string; categoryPath?: string[] };
 }
 
 /**
@@ -71,6 +72,9 @@ export async function* runChat(
   // 2. Hybrid retrieval
   const filters = toRetrievalFilters(intent);
   if (ctx.productContextId) filters.productIds = [ctx.productContextId];
+  // Явні UI-фільтри мають пріоритет над вгаданими intent-фільтрами.
+  if (ctx.filters?.brand) filters.brand = ctx.filters.brand;
+  if (ctx.filters?.categoryPath?.length) filters.categoryPath = ctx.filters.categoryPath;
   const candidates = await qdrant.search(intent.searchQuery, filters, 50);
 
   if (candidates.length === 0) {

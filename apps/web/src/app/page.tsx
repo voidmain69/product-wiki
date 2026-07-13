@@ -56,6 +56,12 @@ interface Context {
   name: string;
 }
 
+/** Явний фільтр retrieval із UI (бренд або рівень категорії). */
+interface FilterChip {
+  kind: "brand" | "category";
+  value: string;
+}
+
 /** Ховер-стани дизайну (inline-стилі не вміють :hover — рендеримо один раз класами). */
 const HOVER_CSS = `
 .pw-scroll::-webkit-scrollbar{width:9px;height:9px}
@@ -92,7 +98,21 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [search, setSearch] = useState("");
+  const [filterChips, setFilterChips] = useState<FilterChip[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // UI-чипи → RetrievalFilters у /chat.
+  const apiFilters = useMemo(() => {
+    const brand = filterChips.find((c) => c.kind === "brand")?.value;
+    const categoryPath = filterChips.filter((c) => c.kind === "category").map((c) => c.value);
+    const f: { brand?: string; categoryPath?: string[] } = {};
+    if (brand) f.brand = brand;
+    if (categoryPath.length) f.categoryPath = categoryPath;
+    return Object.keys(f).length ? f : undefined;
+  }, [filterChips]);
+  const addFilter = (chip: FilterChip) =>
+    setFilterChips((c) => (c.some((x) => x.kind === chip.kind && x.value === chip.value) ? c : [...c, chip]));
+  const removeFilter = (i: number) => setFilterChips((c) => c.filter((_, j) => j !== i));
   const dirty = useRef(false); // чи є незбережені зміни поточного чату
 
   // Заголовок чату — з першого запиту користувача, інакше «Новий чат».
@@ -172,6 +192,7 @@ export default function Home() {
         message,
         sessionId,
         productContextId: contextId ?? context?.id, // scoping RAG до конкретного товару
+        filters: apiFilters,
       })) {
         if (ev.type === "session") setSessionId(ev.sessionId);
         else if (ev.type === "token")
@@ -207,6 +228,7 @@ export default function Home() {
     setActiveProductId(undefined);
     setContext(null);
     setCompare([]);
+    setFilterChips([]);
     dirty.current = false;
   }
 
@@ -331,7 +353,16 @@ export default function Home() {
           )}
         </div>
 
-        <Composer value={input} busy={busy} context={context} onChange={setInput} onSend={() => send()} onClearContext={() => setContext(null)} />
+        <Composer
+          value={input}
+          busy={busy}
+          context={context}
+          filters={filterChips}
+          onChange={setInput}
+          onSend={() => send()}
+          onClearContext={() => setContext(null)}
+          onRemoveFilter={removeFilter}
+        />
       </main>
 
       <WikiPanel
@@ -339,6 +370,7 @@ export default function Home() {
         highlightKey={pickHighlightKey(detail, lastUserText)}
         compareCount={compare.length}
         bookmarked={detail ? bookmarkedIds.has(detail.productId) : false}
+        onAddFilter={addFilter}
         onBookmark={() => detail && toggleBookmark(detail.productId, `${detail.brand} ${detail.name}`)}
         onAsk={() => detail && askAbout(detail.productId, `${detail.brand} ${detail.name}`)}
         onAddCompare={() => detail && addToCompare(detail.productId, `${detail.brand} ${detail.name}`)}
@@ -766,28 +798,38 @@ function Composer({
   value,
   busy,
   context,
+  filters,
   onChange,
   onSend,
   onClearContext,
+  onRemoveFilter,
 }: {
   value: string;
   busy: boolean;
   context: Context | null;
+  filters: FilterChip[];
   onChange: (v: string) => void;
   onSend: () => void;
   onClearContext: () => void;
+  onRemoveFilter: (i: number) => void;
 }) {
   return (
     <div style={{ padding: "12px 28px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {context ? (
+        {context && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.mut2, border: `1px solid ${C.border}`, background: C.panel, borderRadius: 999, padding: "4px 11px" }}>
             У контексті: <b style={{ fontWeight: 600, color: C.terra }}>{context.name}</b>
             <b onClick={onClearContext} style={{ color: C.mut, cursor: "pointer", fontWeight: 400 }}>✕</b>
           </span>
-        ) : (
-          // TODO: чипи-фільтри категорії/ціни — підключити до RetrievalFilters, коли API прийматиме фільтри.
-          <span className="pw-filter-add" style={{ display: "inline-flex", alignItems: "center", font: `400 12px ${SANS}`, color: C.mut, border: `1px dashed #d8ccb9`, borderRadius: 999, padding: "4px 11px", cursor: "pointer" }}>
+        )}
+        {filters.map((f, i) => (
+          <span key={`${f.kind}:${f.value}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.mut2, border: `1px solid ${C.border}`, background: C.panel, borderRadius: 999, padding: "4px 11px" }}>
+            {f.kind === "brand" ? "Бренд" : "Категорія"}: <b style={{ fontWeight: 600 }}>{f.value}</b>
+            <b onClick={() => onRemoveFilter(i)} style={{ color: C.mut, cursor: "pointer", fontWeight: 400 }}>✕</b>
+          </span>
+        ))}
+        {!context && filters.length === 0 && (
+          <span className="pw-filter-add" title="Додайте фільтр кліком на бренд/категорію у вікі-панелі" style={{ display: "inline-flex", alignItems: "center", font: `400 12px ${SANS}`, color: C.mut, border: `1px dashed #d8ccb9`, borderRadius: 999, padding: "4px 11px", cursor: "default" }}>
             ＋ фільтр
           </span>
         )}
@@ -842,6 +884,7 @@ function WikiPanel({
   highlightKey,
   compareCount,
   bookmarked,
+  onAddFilter,
   onBookmark,
   onAsk,
   onAddCompare,
@@ -851,6 +894,7 @@ function WikiPanel({
   highlightKey?: string;
   compareCount: number;
   bookmarked: boolean;
+  onAddFilter: (chip: FilterChip) => void;
   onBookmark: () => void;
   onAsk: () => void;
   onAddCompare: () => void;
@@ -895,10 +939,22 @@ function WikiPanel({
             <Thumb src={detail.images[0] ?? null} size={96} radius={12} />
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={{ font: `600 19px ${SERIF}`, letterSpacing: "-.01em", lineHeight: 1.2 }}>
-                {detail.brand} {detail.name}
+                <span onClick={() => onAddFilter({ kind: "brand", value: detail.brand })} title="Фільтрувати за брендом" style={{ cursor: "pointer" }}>
+                  {detail.brand}
+                </span>{" "}
+                {detail.name}
               </div>
               {detail.categoryPath.length > 0 && (
-                <div style={{ fontSize: 12, color: C.mut }}>{detail.categoryPath.join(" / ")}</div>
+                <div style={{ fontSize: 12, color: C.mut }}>
+                  {detail.categoryPath.map((seg, i) => (
+                    <span key={i}>
+                      {i > 0 && " / "}
+                      <span onClick={() => onAddFilter({ kind: "category", value: seg })} title="Фільтрувати за категорією" style={{ cursor: "pointer" }} className="pw-wikilink">
+                        {seg}
+                      </span>
+                    </span>
+                  ))}
+                </div>
               )}
               <span style={{ alignSelf: "flex-start", fontSize: 11, color: C.freshInk, background: C.freshBg, borderRadius: 999, padding: "3px 10px" }}>
                 оновлено {fmtDate(detail.updatedAt)}

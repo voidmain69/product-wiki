@@ -17,6 +17,13 @@ export const ChatRequest = z.object({
   message: z.string().min(1).max(2000),
   // необов'язкова прив'язка до товару (напр. "запитати про цей товар")
   productContextId: Id.optional(),
+  // явні фільтри з UI (чипи композера): звужують retrieval поверх intent-фільтрів
+  filters: z
+    .object({
+      brand: z.string().optional(),
+      categoryPath: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 export type ChatRequest = z.infer<typeof ChatRequest>;
 
