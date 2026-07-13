@@ -113,6 +113,8 @@ export const productDrafts = pgTable(
     media: jsonb("media").notNull(),
     extractionMethod: extractionMethod("extraction_method").notNull(),
     confidence: doublePrecision("confidence").notNull(),
+    // Мова текстів джерела (ISO 639-1); nullable — легасі-драфти без мови (resolver → "uk").
+    lang: text("lang"),
     normalized: boolean("normalized").notNull().default(false),
     resolvedProductId: uuid("resolved_product_id").references(() => products.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
