@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { createDb, pageSnapshots, productDrafts, outbox } from "@wiki/db";
+import { createDb, pageSnapshots, productDrafts, sources, outbox } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import { ObjectStore } from "@wiki/storage";
 import { createLLM } from "@wiki/llm";
 import type { EventOf } from "@wiki/contracts/events";
-import { runCascade } from "./cascade.js";
+import { runCascade, detectHtmlLang } from "./cascade.js";
 
 /**
  * Extractor-воркер: споживає `page.fetched`, читає raw HTML зі снапшота,
@@ -17,6 +17,22 @@ async function main() {
   const bus = await EventBus.connect();
   const store = new ObjectStore();
   const llm = createLLM();
+
+  // Курована мова джерела (crawlPolicy.lang) кешується per-source; має пріоритет над
+  // фолбек-детекцією з <html lang>. Лінива підвантажка + кеш (джерел небагато).
+  const policyLangCache = new Map<string, string | null>();
+  async function policyLang(sourceId: string): Promise<string | null> {
+    const cached = policyLangCache.get(sourceId);
+    if (cached !== undefined) return cached;
+    const [src] = await db
+      .select({ crawlPolicy: sources.crawlPolicy })
+      .from(sources)
+      .where(eq(sources.id, sourceId))
+      .limit(1);
+    const lang = (src?.crawlPolicy as { lang?: string } | undefined)?.lang ?? null;
+    policyLangCache.set(sourceId, lang);
+    return lang;
+  }
 
   console.log("extractor: підписка на", EventSubjects.PageFetched);
 
@@ -43,6 +59,9 @@ async function main() {
         return;
       }
 
+      // Мова: куроване джерело → <html lang> → null (resolver підставить "uk").
+      const lang = (await policyLang(sourceId)) ?? detectHtmlLang(html);
+
       await db.transaction(async (tx) => {
         const [row] = await tx
           .insert(productDrafts)
@@ -59,6 +78,7 @@ async function main() {
             media: draft.media,
             extractionMethod: draft.extractionMethod,
             confidence: draft.confidence,
+            lang,
           })
           .returning({ id: productDrafts.id });
 

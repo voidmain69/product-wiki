@@ -296,6 +296,19 @@ export function fromMicrodata(html: string): { name: string | null; mpn?: string
   return { name, mpn, gtin };
 }
 
+/**
+ * Мова сторінки з атрибута `<html lang="...">` — фолбек, коли джерело не курує lang
+ * у crawlPolicy. Беремо лише первинний субтег (`en-US` → `en`), lowercase. Порожній
+ * або відсутній атрибут → null (тоді resolver застосує BC-дефолт "uk").
+ */
+export function detectHtmlLang(html: string): string | null {
+  const $ = cheerio.load(html);
+  const raw = $("html").attr("lang")?.trim().toLowerCase();
+  if (!raw) return null;
+  const primary = raw.split(/[-_]/)[0];
+  return primary && primary.length >= 2 ? primary : null;
+}
+
 /** schema.org BreadcrumbList → { назва товару (останній рівень), категорія }. */
 export function fromBreadcrumb(html: string): { name: string; categoryPath: string[] } | null {
   const $ = cheerio.load(html);

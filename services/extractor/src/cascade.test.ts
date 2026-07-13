@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { fromJsonLd, fromApiPayloads, fromSectionSpecTable, fromAttributesRow, fromMicrodata } from "./cascade.js";
+import { fromJsonLd, fromApiPayloads, fromSectionSpecTable, fromAttributesRow, fromMicrodata, detectHtmlLang } from "./cascade.js";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dirname, "__fixtures__", name), "utf8");
@@ -188,5 +188,17 @@ describe("fromAttributesRow / fromMicrodata — рівень 3: Metabo (без P
 
   it("attributesRow повертає [] коли пар мало", () => {
     expect(fromAttributesRow(`<div class="attributesRow"><div class="attrTitle_1">k</div><div class="attrValue_1_1">v</div></div>`)).toEqual([]);
+  });
+});
+
+describe("detectHtmlLang — мова сторінки з <html lang>", () => {
+  it("регіональний тег зводиться до первинного субтегу", () => {
+    expect(detectHtmlLang('<html lang="en-US"><body></body></html>')).toBe("en");
+    expect(detectHtmlLang('<html lang="uk"><body></body></html>')).toBe("uk");
+  });
+
+  it("відсутній або порожній атрибут → null", () => {
+    expect(detectHtmlLang("<html><body>no lang</body></html>")).toBeNull();
+    expect(detectHtmlLang('<html lang=""><body></body></html>')).toBeNull();
   });
 });
