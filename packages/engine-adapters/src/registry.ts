@@ -2,6 +2,7 @@ import { httpGet } from "./http.js";
 import type { EngineAdapter, FetchTask, ProbeData, FetchResult } from "./types.js";
 import { StaticHttpAdapter } from "./adapters/static.js";
 import { HeadlessAdapter } from "./adapters/headless.js";
+import { PhilipsPrxAdapter } from "./adapters/philips-prx.js";
 
 /**
  * Реєстр адаптерів + оркестрація вибору:
@@ -12,8 +13,9 @@ export class AdapterRegistry {
   private adapters: EngineAdapter[];
 
   constructor(adapters?: EngineAdapter[]) {
-    // порядок реєстрації неважливий — вибір за probe()
-    this.adapters = adapters ?? [new StaticHttpAdapter(), new HeadlessAdapter()];
+    // порядок реєстрації неважливий — вибір за probe() (Philips віддає 0.97 лише на
+    // власних товарних URL, тож не перехоплює інші джерела)
+    this.adapters = adapters ?? [new StaticHttpAdapter(), new HeadlessAdapter(), new PhilipsPrxAdapter()];
   }
 
   register(adapter: EngineAdapter): void {

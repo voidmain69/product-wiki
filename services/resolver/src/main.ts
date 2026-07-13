@@ -1,4 +1,4 @@
-import { eq, and, isNotNull, inArray, ilike, ne } from "drizzle-orm";
+import { eq, and, isNotNull, inArray, ilike, ne, sql } from "drizzle-orm";
 import {
   createDb,
   productDrafts,
@@ -44,7 +44,10 @@ async function main() {
       const revisionId = await db.transaction(async (tx) => {
         let productId = existing?.id;
         if (!productId) {
-          const [p] = await tx
+          // onConflict за partial-unique (brand,name) WHERE active закриває гонку: якщо
+          // інший консюмер щойно вставив цей самий товар — insert нічого не поверне,
+          // і ми беремо наявний (замість створення дубля).
+          const inserted = await tx
             .insert(products)
             .values({
               brand: draft.brand,
@@ -53,8 +56,18 @@ async function main() {
               gtin: draft.gtin ?? null,
               status: "active",
             })
+            .onConflictDoNothing({ target: [products.brand, products.name], where: sql`status = 'active'` })
             .returning({ id: products.id });
-          productId = p!.id;
+          if (inserted[0]) {
+            productId = inserted[0].id;
+          } else {
+            const [ex] = await tx
+              .select({ id: products.id })
+              .from(products)
+              .where(and(eq(products.brand, draft.brand), eq(products.name, draft.name), eq(products.status, "active")))
+              .limit(1);
+            productId = ex!.id;
+          }
         } else if (looksLikeSlug(existing!.name) && /\s/.test(draft.name)) {
           // назва базової сторінки часом «слизька» (ProArt-Display-PA278QV-Gen2);
           // чистіша назва з BreadcrumbList /techspec/ ("ProArt Display PA278QV") — краща.
@@ -89,7 +102,8 @@ async function main() {
           await tx.insert(productTexts).values({
             productId,
             section: d.section,
-            lang: "uk",
+            // Мова джерела з драфта; легасі-драфти без мови → BC-дефолт "uk".
+            lang: draft.lang ?? "uk",
             text: d.text,
             sourceSnapshotId: draft.snapshotId,
           });
@@ -107,7 +121,14 @@ async function main() {
           .values({ productId, snapshot })
           .returning({ id: productRevisions.id });
 
-        await tx.update(products).set({ currentRevisionId: rev!.id, updatedAt: new Date() }).where(eq(products.id, productId));
+        // денормалізуємо у products поля каталогу (categoryPath, thumbnail) з поточної
+        // ревізії — щоб фільтр/фасети/список не читали величезний snapshot усіх ревізій.
+        const thumbnail =
+          snapshot.media.find((m) => m.type === "image" && /^https?:\/\//.test(m.url))?.url ?? null;
+        await tx
+          .update(products)
+          .set({ currentRevisionId: rev!.id, categoryPath: snapshot.categoryPath, thumbnail, updatedAt: new Date() })
+          .where(eq(products.id, productId));
         await tx.update(productDrafts).set({ resolvedProductId: productId }).where(eq(productDrafts.id, draftId));
 
         await tx.insert(outbox).values({

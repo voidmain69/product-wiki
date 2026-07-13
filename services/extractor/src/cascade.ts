@@ -185,6 +185,130 @@ export function fromSpecTable(html: string): RawAttr[] {
   return attrs.length >= 3 ? attrs : [];
 }
 
+/* ── Рівень 2: перехоплені API-payload-и ───────────────────────────────── */
+
+/**
+ * Атрибути з перехоплених API-викликів (apiPayloads снапшота). Поки що —
+ * формат Philips PRX (`GET .../products/<CTN>.specification`): дерево
+ * `data.csChapter[].csItem[].csItemName` = мітка, `csValue[].csValueName` = значення
+ * (кілька значень зливаємо через ", "). Значення дослівні з API → self-check зайвий.
+ */
+export function fromApiPayloads(payloads: unknown[]): RawAttr[] {
+  const seen = new Set<string>();
+  const attrs: RawAttr[] = [];
+  for (const cap of payloads ?? []) {
+    const body = (cap as { body?: unknown } | null)?.body;
+    for (const pair of parsePhilipsPrx(body)) {
+      const k = pair.key.toLowerCase().trim();
+      if (!pair.key || !pair.value || seen.has(k)) continue;
+      seen.add(k);
+      attrs.push(pair);
+    }
+  }
+  return attrs;
+}
+
+function parsePhilipsPrx(body: unknown): RawAttr[] {
+  const data = (body as { data?: { csChapter?: unknown } } | null)?.data;
+  const chapters = data?.csChapter;
+  if (!Array.isArray(chapters)) return [];
+  const out: RawAttr[] = [];
+  for (const ch of chapters) {
+    const items = (ch as { csItem?: unknown })?.csItem;
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const rec = item as { csItemName?: unknown; csValue?: unknown };
+      const key = String(rec.csItemName ?? "").trim();
+      const values = Array.isArray(rec.csValue)
+        ? (rec.csValue as { csValueName?: unknown }[])
+            .map((v) => String(v?.csValueName ?? "").trim())
+            .filter(Boolean)
+        : [];
+      const value = values.join(", ");
+      if (key && value) out.push({ key, value });
+    }
+  }
+  return out;
+}
+
+/**
+ * Спец-таблиця в секції характеристик (Kärcher: `<div data-anchor="Специфікації">…
+ * <table class="table"><tr><td>Мітка</td><td>Значення</td></tr>`). Обмежуємось секціями,
+ * чий data-anchor вказує на характеристики, щоб не хапати сторонні 2-колонкові таблиці
+ * (аксесуари/запчастини). Значення дослівні зі сторінки — self-check зайвий.
+ */
+export function fromSectionSpecTable(html: string): RawAttr[] {
+  const $ = cheerio.load(html);
+  const isSpecSection = /специфікац|характеристик|технічні дан|technical data|specification/i;
+  const seen = new Set<string>();
+  const attrs: RawAttr[] = [];
+  $("[data-anchor]").each((_, section) => {
+    if (!isSpecSection.test(String($(section).attr("data-anchor") ?? ""))) return;
+    $(section)
+      .find("table tr")
+      .each((__, tr) => {
+        const tds = $(tr).find("td");
+        if (tds.length !== 2) return;
+        const key = $(tds[0]).text().replace(/\s+/g, " ").trim();
+        const value = $(tds[1]).text().replace(/\s+/g, " ").trim();
+        if (!key || !value) return;
+        const k = key.toLowerCase();
+        if (seen.has(k)) return;
+        seen.add(k);
+        attrs.push({ key, value });
+      });
+  });
+  return attrs.length >= 3 ? attrs : [];
+}
+
+/**
+ * spec-блок Metabo (OXID eShop): `<div class="attributesRow"><div class="attrTitle_N">Мітка
+ * </div><div class="attrValue_N_1">Значення</div></div>`. Класи мають числові суфікси, тож
+ * матчимо за префіксом. Значення дослівні зі сторінки — self-check зайвий.
+ */
+export function fromAttributesRow(html: string): RawAttr[] {
+  const $ = cheerio.load(html);
+  const seen = new Set<string>();
+  const attrs: RawAttr[] = [];
+  $(".attributesRow").each((_, row) => {
+    const key = $(row).find("[class^='attrTitle_']").first().text().replace(/\s+/g, " ").trim();
+    const value = $(row).find("[class^='attrValue_']").first().text().replace(/\s+/g, " ").trim();
+    if (!key || !value) return;
+    const k = key.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    attrs.push({ key, value });
+  });
+  return attrs.length >= 3 ? attrs : [];
+}
+
+/**
+ * Ідентичність із schema.org-мікророзмітки (itemprop) — для сторінок без Product-JSON-LD
+ * (Metabo): назва з `h1[itemprop="name"]`, mpn/gtin — з `content`-атрибутів.
+ */
+export function fromMicrodata(html: string): { name: string | null; mpn?: string; gtin?: string } {
+  const $ = cheerio.load(html);
+  const name = $("h1[itemprop='name']").first().text().replace(/\s+/g, " ").trim() || null;
+  const mpn = $("[itemprop='mpn']").first().attr("content")?.trim() || undefined;
+  const gtin =
+    $("[itemprop='gtin13'],[itemprop='gtin14'],[itemprop='gtin']").first().attr("content")?.trim() ||
+    undefined;
+  return { name, mpn, gtin };
+}
+
+/**
+ * Мова сторінки з атрибута `<html lang="...">` — фолбек, коли джерело не курує lang
+ * у crawlPolicy. Беремо лише первинний субтег (`en-US` → `en`), lowercase. Порожній
+ * або відсутній атрибут → null (тоді resolver застосує BC-дефолт "uk").
+ */
+export function detectHtmlLang(html: string): string | null {
+  const $ = cheerio.load(html);
+  const raw = $("html").attr("lang")?.trim().toLowerCase();
+  if (!raw) return null;
+  const primary = raw.split(/[-_]/)[0];
+  return primary && primary.length >= 2 ? primary : null;
+}
+
 /** schema.org BreadcrumbList → { назва товару (останній рівень), категорія }. */
 export function fromBreadcrumb(html: string): { name: string; categoryPath: string[] } | null {
   const $ = cheerio.load(html);
@@ -225,7 +349,11 @@ function findByType(node: unknown, type: string): Record<string, unknown> | null
 }
 
 /** Бренд із хосту курируваного джерела (spec-сторінка ASUS не має Product-JSON-LD). */
-const BRAND_BY_HOST: Record<string, string> = { "asus.com": "ASUS" };
+const BRAND_BY_HOST: Record<string, string> = {
+  "asus.com": "ASUS",
+  "karcher.com": "Kärcher",
+  "metabo.com": "Metabo",
+};
 function brandFromHost(url: string): string {
   try {
     const host = new URL(url).host.replace(/^www\./, "");
@@ -290,30 +418,59 @@ export async function runCascade(
   input: ExtractInput,
   llm: LLMProvider,
 ): Promise<ProductDraft | null> {
-  // Спец-характеристики — детерміновано, двома форматами ASUS /techspec/:
-  //   <BR>-блок (монітори) + rowTable-DOM (мат.плати/ноутбуки/GPU). Тягнемо завжди й
-  //   доповнюємо ними будь-який рівень (JSON-LD зазвичай має лише name/brand).
-  const specAttrs = mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html));
+  // Спец-характеристики — детерміновано, з кількох джерел:
+  //   • <BR>-блок + rowTable-DOM (ASUS /techspec/): монітори / мат.плати / ноутбуки / GPU;
+  //   • секційна spec-таблиця (Kärcher `data-anchor="Специфікації"` → 2-колонкова таблиця);
+  //   • перехоплені API-payload-и (Philips PRX) — рівень 2 каскаду.
+  //   Тягнемо завжди й доповнюємо ними будь-який рівень (JSON-LD зазвичай має лише name/brand).
+  const htmlSpec = mergeAttrs(
+    mergeAttrs(
+      mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html)),
+      fromSectionSpecTable(input.html),
+    ),
+    fromAttributesRow(input.html),
+  );
+  const specAttrs = mergeAttrs(htmlSpec, fromApiPayloads(input.apiPayloads));
 
-  // 1. JSON-LD (Product) + мерж спец-блоку
+  // 1. JSON-LD (Product) + мерж спец-блоку. Категорію, якщо її нема в Product,
+  //    беремо з BreadcrumbList (Philips: JSON-LD Product без category).
   const jsonld = fromJsonLd(input.html);
   if (jsonld && jsonld.name) {
-    return finalize(input, { ...jsonld, attributesRaw: mergeAttrs(jsonld.attributesRaw, specAttrs) }, "jsonld", 0.95);
+    const categoryRaw = jsonld.categoryRaw.length
+      ? jsonld.categoryRaw
+      : fromBreadcrumb(input.html)?.categoryPath ?? [];
+    return finalize(
+      input,
+      { ...jsonld, categoryRaw, attributesRaw: mergeAttrs(jsonld.attributesRaw, specAttrs) },
+      "jsonld",
+      0.95,
+    );
   }
 
   // 2. API payloads (спрощено: якщо є перехоплений JSON із полем name)
   //    Повна реалізація — мапінг per-source; тут — місток.
 
-  // 3. Site recipe: спец-сторінка (напр. ASUS /techspec/) без Product-JSON-LD, але зі
-  //    спец-блоком і хлібними крихтами. Назву й категорію беремо з BreadcrumbList,
+  // 3. Site recipe: сторінка без Product-JSON-LD, але зі спец-блоком. Ідентичність —
+  //    із BreadcrumbList (ASUS /techspec/) або schema.org-мікророзмітки itemprop (Metabo);
   //    бренд — з курируваного джерела за хостом. Факти — лише зі сторінки (provenance).
   if (specAttrs.length) {
-    const crumb = fromBreadcrumb(input.html);
     const brand = brandFromHost(input.url);
-    if (crumb?.name && brand) {
+    const crumb = fromBreadcrumb(input.html);
+    const micro = fromMicrodata(input.html);
+    const name = crumb?.name ?? micro.name;
+    if (name && brand) {
       return finalize(
         input,
-        { name: stripBrandPrefix(crumb.name, brand), brand, categoryRaw: crumb.categoryPath, attributesRaw: specAttrs, descriptions: [], media: [] },
+        {
+          name: stripBrandPrefix(name, brand),
+          brand,
+          mpn: micro.mpn,
+          gtin: micro.gtin,
+          categoryRaw: crumb?.categoryPath ?? [],
+          attributesRaw: specAttrs,
+          descriptions: [],
+          media: [],
+        },
         "recipe",
         0.9,
       );

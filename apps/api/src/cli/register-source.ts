@@ -33,6 +33,7 @@ const SourceInput = z.object({
   maxRps: z.number().positive().default(0.5),
   recrawlIntervalDays: z.number().int().positive().default(30),
   engineHint: z.enum(["static", "headless", "api-replay", "document"]).optional(),
+  lang: z.string().min(2).max(5).optional(), // ISO 639-1 мова джерела (напр. "en") — для не-укр сайтів
 });
 
 async function main() {
@@ -63,6 +64,7 @@ async function main() {
           maxRps: input.maxRps,
           recrawlIntervalDays: input.recrawlIntervalDays,
           ...(input.engineHint ? { engineHint: input.engineHint } : {}),
+          ...(input.lang ? { lang: input.lang } : {}),
         },
         status: "active",
       })

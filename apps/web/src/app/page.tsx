@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import type { ProductCard, Citation, ComparisonTable, ProductDetail } from "@wiki/contracts";
 import { streamChat } from "@/lib/chat-stream";
+import { C, SERIF, SANS, HOVER_CSS } from "@/lib/theme";
 import {
   type Turn,
   type Conversation,
@@ -26,31 +27,6 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
-// Палітра дизайну (єдине джерело кольорів — щоб не розсинхронізувати відтінки).
-const C = {
-  bg: "#f6f2ec",
-  ink: "#33291f",
-  terra: "#b45f3c",
-  terraHi: "#9c4f30",
-  dark: "#33291f",
-  panel: "#fdfcfa",
-  side: "#f1ebe2",
-  border: "#e5ddd0",
-  borderSoft: "#e9e1d4",
-  borderPanel: "#efe9de",
-  mut: "#a89b88",
-  mut2: "#5c5140",
-  mut3: "#8b7f6e",
-  userBubble: "#efe5d7",
-  chip: "#f3ede4",
-  hlBg: "#f7e8db",
-  freshBg: "#eef0e5",
-  freshInk: "#6f7f5a",
-} as const;
-
-const SERIF = "'Source Serif 4', serif";
-const SANS = "'IBM Plex Sans', sans-serif";
-
 interface Context {
   id: string;
   name: string;
@@ -61,29 +37,6 @@ interface FilterChip {
   kind: "brand" | "category";
   value: string;
 }
-
-/** Ховер-стани дизайну (inline-стилі не вміють :hover — рендеримо один раз класами). */
-const HOVER_CSS = `
-.pw-scroll::-webkit-scrollbar{width:9px;height:9px}
-.pw-scroll::-webkit-scrollbar-thumb{background:#dcd2c2;border-radius:9px;border:2px solid transparent;background-clip:content-box}
-.pw-scroll::-webkit-scrollbar-track{background:transparent}
-.pw-hist{position:relative}
-.pw-hist:hover{background:#eee7db}
-.pw-hist .pw-del{opacity:0}
-.pw-hist:hover .pw-del{opacity:1}
-.pw-side-btn:hover{background:#eee7db}
-.pw-collapse:hover{background:#e9e1d4}
-.pw-newchat:hover{background:#4a3d2e}
-.pw-dark-btn:hover:not(:disabled){background:#4a3d2e}
-.pw-terra-btn:hover{background:#9c4f30}
-.pw-ghost-btn:hover:not(:disabled){background:#f3ede4}
-.pw-doc:hover{background:#f7f3ec}
-.pw-send:hover:not(:disabled){background:#9c4f30}
-.pw-filter-add:hover{color:#5c5140;border-color:#a89b88}
-.pw-example:hover{background:#efe5d7;border-color:#d8ccb9}
-.pw-wikilink{color:#b45f3c;text-decoration:none}
-.pw-wikilink:hover{color:#9c4f30}
-`;
 
 export default function Home() {
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -114,6 +67,7 @@ export default function Home() {
     setFilterChips((c) => (c.some((x) => x.kind === chip.kind && x.value === chip.value) ? c : [...c, chip]));
   const removeFilter = (i: number) => setFilterChips((c) => c.filter((_, j) => j !== i));
   const dirty = useRef(false); // чи є незбережені зміни поточного чату
+  const urlProduct = useRef<string | null>(null); // товар, відкритий з вікі-сторінки (?product=)
 
   // Заголовок чату — з першого запиту користувача, інакше «Новий чат».
   const chatTitle = useMemo(
@@ -145,7 +99,24 @@ export default function Home() {
   useEffect(() => {
     setConversations(loadConversations());
     setBookmarks(loadBookmarks());
+    // перехід із вікі-сторінки «Питати про це» (?product=id): відкриваємо товар як
+    // активний контекст RAG; параметр прибираємо з URL, щоб не липнув при newChat.
+    const pid = new URLSearchParams(window.location.search).get("product");
+    if (pid) {
+      urlProduct.current = pid;
+      setActiveProductId(pid);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }, []);
+
+  // Коли підвантажилась вікі-сторінка товару, відкритого з URL — робимо його контекстом
+  // чату (scoping RAG) і показуємо в шапці.
+  useEffect(() => {
+    if (detail && urlProduct.current && detail.productId === urlProduct.current) {
+      setContext({ id: detail.productId, name: `${detail.brand} ${detail.name}` });
+      urlProduct.current = null;
+    }
+  }, [detail]);
 
   // Автоскрол донизу під час стрімінгу.
   useEffect(() => {
