@@ -261,6 +261,41 @@ export function fromSectionSpecTable(html: string): RawAttr[] {
   return attrs.length >= 3 ? attrs : [];
 }
 
+/**
+ * spec-блок Metabo (OXID eShop): `<div class="attributesRow"><div class="attrTitle_N">Мітка
+ * </div><div class="attrValue_N_1">Значення</div></div>`. Класи мають числові суфікси, тож
+ * матчимо за префіксом. Значення дослівні зі сторінки — self-check зайвий.
+ */
+export function fromAttributesRow(html: string): RawAttr[] {
+  const $ = cheerio.load(html);
+  const seen = new Set<string>();
+  const attrs: RawAttr[] = [];
+  $(".attributesRow").each((_, row) => {
+    const key = $(row).find("[class^='attrTitle_']").first().text().replace(/\s+/g, " ").trim();
+    const value = $(row).find("[class^='attrValue_']").first().text().replace(/\s+/g, " ").trim();
+    if (!key || !value) return;
+    const k = key.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    attrs.push({ key, value });
+  });
+  return attrs.length >= 3 ? attrs : [];
+}
+
+/**
+ * Ідентичність із schema.org-мікророзмітки (itemprop) — для сторінок без Product-JSON-LD
+ * (Metabo): назва з `h1[itemprop="name"]`, mpn/gtin — з `content`-атрибутів.
+ */
+export function fromMicrodata(html: string): { name: string | null; mpn?: string; gtin?: string } {
+  const $ = cheerio.load(html);
+  const name = $("h1[itemprop='name']").first().text().replace(/\s+/g, " ").trim() || null;
+  const mpn = $("[itemprop='mpn']").first().attr("content")?.trim() || undefined;
+  const gtin =
+    $("[itemprop='gtin13'],[itemprop='gtin14'],[itemprop='gtin']").first().attr("content")?.trim() ||
+    undefined;
+  return { name, mpn, gtin };
+}
+
 /** schema.org BreadcrumbList → { назва товару (останній рівень), категорія }. */
 export function fromBreadcrumb(html: string): { name: string; categoryPath: string[] } | null {
   const $ = cheerio.load(html);
@@ -301,7 +336,11 @@ function findByType(node: unknown, type: string): Record<string, unknown> | null
 }
 
 /** Бренд із хосту курируваного джерела (spec-сторінка ASUS не має Product-JSON-LD). */
-const BRAND_BY_HOST: Record<string, string> = { "asus.com": "ASUS", "karcher.com": "Kärcher" };
+const BRAND_BY_HOST: Record<string, string> = {
+  "asus.com": "ASUS",
+  "karcher.com": "Kärcher",
+  "metabo.com": "Metabo",
+};
 function brandFromHost(url: string): string {
   try {
     const host = new URL(url).host.replace(/^www\./, "");
@@ -372,8 +411,11 @@ export async function runCascade(
   //   • перехоплені API-payload-и (Philips PRX) — рівень 2 каскаду.
   //   Тягнемо завжди й доповнюємо ними будь-який рівень (JSON-LD зазвичай має лише name/brand).
   const htmlSpec = mergeAttrs(
-    mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html)),
-    fromSectionSpecTable(input.html),
+    mergeAttrs(
+      mergeAttrs(fromSpecBlob(input.html), fromSpecTable(input.html)),
+      fromSectionSpecTable(input.html),
+    ),
+    fromAttributesRow(input.html),
   );
   const specAttrs = mergeAttrs(htmlSpec, fromApiPayloads(input.apiPayloads));
 
@@ -395,16 +437,27 @@ export async function runCascade(
   // 2. API payloads (спрощено: якщо є перехоплений JSON із полем name)
   //    Повна реалізація — мапінг per-source; тут — місток.
 
-  // 3. Site recipe: спец-сторінка (напр. ASUS /techspec/) без Product-JSON-LD, але зі
-  //    спец-блоком і хлібними крихтами. Назву й категорію беремо з BreadcrumbList,
+  // 3. Site recipe: сторінка без Product-JSON-LD, але зі спец-блоком. Ідентичність —
+  //    із BreadcrumbList (ASUS /techspec/) або schema.org-мікророзмітки itemprop (Metabo);
   //    бренд — з курируваного джерела за хостом. Факти — лише зі сторінки (provenance).
   if (specAttrs.length) {
-    const crumb = fromBreadcrumb(input.html);
     const brand = brandFromHost(input.url);
-    if (crumb?.name && brand) {
+    const crumb = fromBreadcrumb(input.html);
+    const micro = fromMicrodata(input.html);
+    const name = crumb?.name ?? micro.name;
+    if (name && brand) {
       return finalize(
         input,
-        { name: stripBrandPrefix(crumb.name, brand), brand, categoryRaw: crumb.categoryPath, attributesRaw: specAttrs, descriptions: [], media: [] },
+        {
+          name: stripBrandPrefix(name, brand),
+          brand,
+          mpn: micro.mpn,
+          gtin: micro.gtin,
+          categoryRaw: crumb?.categoryPath ?? [],
+          attributesRaw: specAttrs,
+          descriptions: [],
+          media: [],
+        },
         "recipe",
         0.9,
       );

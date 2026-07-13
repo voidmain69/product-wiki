@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { fromJsonLd, fromApiPayloads, fromSectionSpecTable } from "./cascade.js";
+import { fromJsonLd, fromApiPayloads, fromSectionSpecTable, fromAttributesRow, fromMicrodata } from "./cascade.js";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dirname, "__fixtures__", name), "utf8");
@@ -156,5 +156,37 @@ describe("fromSectionSpecTable — рівень 3: секційна spec-таб�
     expect(
       fromSectionSpecTable(`<div data-anchor="Специфікації"><table><tr><td>k</td><td>v</td></tr></table></div>`),
     ).toEqual([]); // лише 1 пара (<3)
+  });
+});
+
+describe("fromAttributesRow / fromMicrodata — рівень 3: Metabo (без Product-JSON-LD)", () => {
+  const metabo = `
+    <h1 class="pageHead" itemprop="name">KGS 315 Plus (0103150000) Торцювальна пила </h1>
+    <span itemprop="mpn" content="0103150000"></span>
+    <span itemprop="gtin13" content="4003665505671"></span>
+    <div id="attributes">
+      <div class="attributesRow"><div class="attrTitle_1">Габарити</div><div class="attrValue_1_1">950 x 765 x 660 mm</div></div>
+      <div class="attributesRow"><div class="attrTitle_2">Вага</div><div class="attrValue_2_1">27.2 kg</div></div>
+      <div class="attributesRow"><div class="attrTitle_3">Номінальна споживана потужність</div><div class="attrValue_3_1">1600 W</div></div>
+    </div>`;
+
+  it("витягує пари attrTitle_/attrValue_", () => {
+    const attrs = fromAttributesRow(metabo);
+    expect(attrs).toContainEqual({ key: "Габарити", value: "950 x 765 x 660 mm" });
+    expect(attrs).toContainEqual({ key: "Вага", value: "27.2 kg" });
+    expect(attrs).toHaveLength(3);
+  });
+
+  it("витягує назву з h1[itemprop=name] та mpn/gtin з content", () => {
+    const m = fromMicrodata(metabo);
+    expect(m.name).toBe("KGS 315 Plus (0103150000) Торцювальна пила");
+    expect(m.mpn).toBe("0103150000");
+    expect(m.gtin).toBe("4003665505671");
+    // назви з accessory-span-ів не перебивають h1
+    expect(fromMicrodata(`<span itemprop="name">аксесуар</span>`).name).toBeNull();
+  });
+
+  it("attributesRow повертає [] коли пар мало", () => {
+    expect(fromAttributesRow(`<div class="attributesRow"><div class="attrTitle_1">k</div><div class="attrValue_1_1">v</div></div>`)).toEqual([]);
   });
 });

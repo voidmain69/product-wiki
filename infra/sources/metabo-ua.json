@@ -1,0 +1,9 @@
+{
+  "name": "Metabo Україна",
+  "domains": ["www.metabo.com"],
+  "entrypoints": ["https://www.metabo.com/ua/uk/sitemap/ua-uk.xml"],
+  "urlPatterns": ["^https://www\\.metabo\\.com/ua/uk/.+\\.html$"],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30,
+  "engineHint": "static"
+}
