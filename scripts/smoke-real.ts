@@ -58,7 +58,7 @@ async function main() {
       name: src.name,
       domains: src.domains,
       verification: { method: "manual", verifiedBy: "smoke-real", verifiedAt: new Date().toISOString() },
-      crawlPolicy: { entrypoints: src.entrypoints ?? [], urlPatterns: src.urlPatterns ?? [], maxRps: src.maxRps ?? 0.5, recrawlIntervalDays: src.recrawlIntervalDays ?? 30, ...(src.engineHint ? { engineHint: src.engineHint } : {}) },
+      crawlPolicy: { entrypoints: src.entrypoints ?? [], urlPatterns: src.urlPatterns ?? [], maxRps: src.maxRps ?? 0.5, recrawlIntervalDays: src.recrawlIntervalDays ?? 30, ...(src.engineHint ? { engineHint: src.engineHint } : {}), ...(src.lang ? { lang: src.lang } : {}) },
       status: "active",
     }).returning({ id: sources.id });
     const sourceId = row!.id;
