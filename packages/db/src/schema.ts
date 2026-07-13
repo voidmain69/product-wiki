@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
@@ -112,6 +113,8 @@ export const productDrafts = pgTable(
     media: jsonb("media").notNull(),
     extractionMethod: extractionMethod("extraction_method").notNull(),
     confidence: doublePrecision("confidence").notNull(),
+    // Мова текстів джерела (ISO 639-1); nullable — легасі-драфти без мови (resolver → "uk").
+    lang: text("lang"),
     normalized: boolean("normalized").notNull().default(false),
     resolvedProductId: uuid("resolved_product_id").references(() => products.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -151,6 +154,10 @@ export const products = pgTable(
     mpn: text("mpn"),
     gtin: text("gtin"),
     categoryId: uuid("category_id").references(() => categories.id),
+    // денормалізовані з поточної ревізії поля для каталогу — щоб фільтр/фасети/список
+    // не чіпали величезний snapshot усіх ревізій (containment по history = seq-scan+detoast).
+    categoryPath: jsonb("category_path").$type<string[]>().notNull().default([]),
+    thumbnail: text("thumbnail"),
     status: productStatus("status").notNull().default("active"),
     mergedInto: uuid("merged_into"), // якщо merged_away → на що злито
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -158,6 +165,15 @@ export const products = pgTable(
   (t) => ({
     uqGtin: uniqueIndex("uq_product_gtin").on(t.gtin),
     byBrandMpn: index("ix_product_brand_mpn").on(t.brand, t.mpn),
+    // Один активний канонічний товар на (brand, name) — закриває гонку resolver-а
+    // (два консюмери не знайшли товар і обидва вставили) + легасі-дублі. Partial:
+    // merged_away/retired-версії можуть повторювати назву.
+    uqBrandNameActive: uniqueIndex("uq_product_brand_name_active")
+      .on(t.brand, t.name)
+      .where(sql`status = 'active'`),
+    // GIN за denormalized categoryPath (лише поточні товари, 1 рядок/товар) — швидкий
+    // containment для фільтра каталогу за категорією.
+    categoryGin: index("ix_product_category_gin").using("gin", sql`(${t.categoryPath}) jsonb_path_ops`),
   }),
 );
 

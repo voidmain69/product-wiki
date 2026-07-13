@@ -60,7 +60,7 @@ export async function* runChat(
       // LLM коментує лише значущі відмінності
       const diffs = table.rows.filter((r) => r.differs);
       const summary = await llm.generate([
-        { role: "system", content: "Коротко прокоментуй ключові відмінності товарів за таблицею. Без вигадок." },
+        { role: "system", content: "Коротко прокоментуй ключові відмінності товарів за таблицею. Відповідай українською (значення в таблиці можуть бути іншою мовою). Без вигадок." },
         { role: "user", content: JSON.stringify({ products: table.productNames, diffs }) },
       ]);
       yield { type: "token", text: summary };

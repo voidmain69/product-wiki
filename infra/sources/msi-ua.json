@@ -1,0 +1,17 @@
+{
+  "name": "MSI Україна",
+  "domains": ["ua.msi.com"],
+  "entrypoints": [
+    "https://ua.msi.com/Monitor/Products",
+    "https://ua.msi.com/Graphics-Card/Products",
+    "https://ua.msi.com/Motherboard/Products",
+    "https://ua.msi.com/Laptops/Products",
+    "https://ua.msi.com/Desktop/Products"
+  ],
+  "urlPatterns": [
+    "/(Laptop|Monitor|Graphics-Card|Motherboard|Desktop|All-in-One-PC|Handheld|Power-Supply|Case|Cooling|Peripheral)/[^/]+(/Specification)?$"
+  ],
+  "maxRps": 0.5,
+  "recrawlIntervalDays": 30,
+  "engineHint": "headless"
+}

@@ -21,6 +21,10 @@ export const CrawlPolicy = z.object({
   entrypoints: z.array(z.string().url()), // sitemap URL або каталожні розділи
   urlPatterns: z.array(z.string()), // рядки-регекси; які URL вважати сторінками товарів
   engineHint: EngineType.optional(),
+  // Мова текстів джерела (ISO 639-1, опційно з регіоном: "en", "en-US"). Курується в
+  // Source Registry — єдина точка довіри. Відсутня → мову визначає fetcher/extractor
+  // з <html lang>, зрештою фолбек "uk". Потрібна для не-укр джерел (напр. Logitech).
+  lang: z.string().min(2).max(5).optional(),
   maxRps: z.number().positive().default(0.5), // ввічливість
   recrawlIntervalDays: z.number().int().positive().default(30),
 });
@@ -89,6 +93,9 @@ export const ProductDraft = z.object({
   media: z.array(MediaRef),
   extractionMethod: ExtractionMethod,
   confidence: z.number().min(0).max(1),
+  // Мова текстів (ISO 639-1). Проставляє extractor: policy.lang → <html lang>.
+  // Відсутня (легасі-драфт) → resolver підставить "uk".
+  lang: z.string().optional(),
 });
 export type ProductDraft = z.infer<typeof ProductDraft>;
 

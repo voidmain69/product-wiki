@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { fromJsonLd } from "./cascade.js";
+import { fromJsonLd, fromApiPayloads, fromSectionSpecTable, fromAttributesRow, fromMicrodata, detectHtmlLang } from "./cascade.js";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dirname, "__fixtures__", name), "utf8");
@@ -85,5 +85,120 @@ describe("fromJsonLd — детермінований рівень екстра�
   it("не падає на битому JSON-LD", () => {
     const html = `<script type="application/ld+json">{ broken json }</script>`;
     expect(fromJsonLd(html)).toBeNull();
+  });
+});
+
+describe("fromApiPayloads — рівень 2: Philips PRX .specification", () => {
+  const prx = (chapters: unknown) => [
+    { requestUrl: "https://www.philips.ua/prx/product/B2C/uk_UA/CONSUMER/products/HR3660_55.specification", method: "GET", status: 200, body: { success: true, data: { csChapter: chapters } } },
+  ];
+
+  it("розгортає csChapter→csItem→csValue у пари атрибутів", () => {
+    const attrs = fromApiPayloads(
+      prx([
+        { csChapterName: "Технічні характеристики", csItem: [{ csItemName: "Ємність пляшки", csValue: [{ csValueName: "0,6 л" }] }] },
+        { csChapterName: "Покриття", csItem: [{ csItemName: "Матеріал чаші", csValue: [{ csValueName: "Пластик" }] }] },
+      ]),
+    );
+    expect(attrs).toContainEqual({ key: "Ємність пляшки", value: "0,6 л" });
+    expect(attrs).toContainEqual({ key: "Матеріал чаші", value: "Пластик" });
+  });
+
+  it("зливає кілька значень одного атрибута через кому", () => {
+    const attrs = fromApiPayloads(
+      prx([{ csChapterName: "Загальні", csItem: [{ csItemName: "Кольори", csValue: [{ csValueName: "Чорний" }, { csValueName: "Сірий" }] }] }]),
+    );
+    expect(attrs).toContainEqual({ key: "Кольори", value: "Чорний, Сірий" });
+  });
+
+  it("дедуплікує повторні мітки й ігнорує порожні значення", () => {
+    const attrs = fromApiPayloads(
+      prx([
+        { csItem: [{ csItemName: "Вага", csValue: [{ csValueName: "1 кг" }] }, { csItemName: "Вага", csValue: [{ csValueName: "2 кг" }] }] },
+        { csItem: [{ csItemName: "Порожнє", csValue: [{ csValueName: "" }] }] },
+      ]),
+    );
+    expect(attrs.filter((a) => a.key === "Вага")).toHaveLength(1);
+    expect(attrs.find((a) => a.key === "Порожнє")).toBeUndefined();
+  });
+
+  it("повертає [] на чужих/порожніх payload-ах", () => {
+    expect(fromApiPayloads([])).toEqual([]);
+    expect(fromApiPayloads([{ body: { unrelated: true } }])).toEqual([]);
+    expect(fromApiPayloads([null, { nope: 1 }])).toEqual([]);
+  });
+});
+
+describe("fromSectionSpecTable — рівень 3: секційна spec-таблиця (Kärcher)", () => {
+  const karcher = `
+    <div data-anchor="Опис"><table class="table"><tr><td>не</td><td>спека</td></tr></table></div>
+    <div data-anchor="Специфікації">
+      <h3>Технічні характеристики</h3>
+      <table class="table">
+        <tr><td>Напруга   (В)</td><td>
+          220 - 240 </td></tr>
+        <tr><td>Частота (Гц)</td><td>50 - 60</td></tr>
+        <tr><td>Тиск (бар/МПа)</td><td>20 - макс. 110 / 2 - макс. 11</td></tr>
+      </table>
+    </div>`;
+
+  it("витягує пари td[0]/td[1] лише зі спец-секції, згортаючи пробіли", () => {
+    const attrs = fromSectionSpecTable(karcher);
+    expect(attrs).toContainEqual({ key: "Напруга (В)", value: "220 - 240" });
+    expect(attrs).toContainEqual({ key: "Частота (Гц)", value: "50 - 60" });
+    expect(attrs).toHaveLength(3);
+    // таблиця із секції "Опис" не потрапляє
+    expect(attrs.find((a) => a.key === "не")).toBeUndefined();
+  });
+
+  it("повертає [] коли спец-секції нема або пар мало", () => {
+    expect(fromSectionSpecTable("<div><table><tr><td>a</td><td>b</td></tr></table></div>")).toEqual([]);
+    expect(
+      fromSectionSpecTable(`<div data-anchor="Специфікації"><table><tr><td>k</td><td>v</td></tr></table></div>`),
+    ).toEqual([]); // лише 1 пара (<3)
+  });
+});
+
+describe("fromAttributesRow / fromMicrodata — рівень 3: Metabo (без Product-JSON-LD)", () => {
+  const metabo = `
+    <h1 class="pageHead" itemprop="name">KGS 315 Plus (0103150000) Торцювальна пила </h1>
+    <span itemprop="mpn" content="0103150000"></span>
+    <span itemprop="gtin13" content="4003665505671"></span>
+    <div id="attributes">
+      <div class="attributesRow"><div class="attrTitle_1">Габарити</div><div class="attrValue_1_1">950 x 765 x 660 mm</div></div>
+      <div class="attributesRow"><div class="attrTitle_2">Вага</div><div class="attrValue_2_1">27.2 kg</div></div>
+      <div class="attributesRow"><div class="attrTitle_3">Номінальна споживана потужність</div><div class="attrValue_3_1">1600 W</div></div>
+    </div>`;
+
+  it("витягує пари attrTitle_/attrValue_", () => {
+    const attrs = fromAttributesRow(metabo);
+    expect(attrs).toContainEqual({ key: "Габарити", value: "950 x 765 x 660 mm" });
+    expect(attrs).toContainEqual({ key: "Вага", value: "27.2 kg" });
+    expect(attrs).toHaveLength(3);
+  });
+
+  it("витягує назву з h1[itemprop=name] та mpn/gtin з content", () => {
+    const m = fromMicrodata(metabo);
+    expect(m.name).toBe("KGS 315 Plus (0103150000) Торцювальна пила");
+    expect(m.mpn).toBe("0103150000");
+    expect(m.gtin).toBe("4003665505671");
+    // назви з accessory-span-ів не перебивають h1
+    expect(fromMicrodata(`<span itemprop="name">аксесуар</span>`).name).toBeNull();
+  });
+
+  it("attributesRow повертає [] коли пар мало", () => {
+    expect(fromAttributesRow(`<div class="attributesRow"><div class="attrTitle_1">k</div><div class="attrValue_1_1">v</div></div>`)).toEqual([]);
+  });
+});
+
+describe("detectHtmlLang — мова сторінки з <html lang>", () => {
+  it("регіональний тег зводиться до первинного субтегу", () => {
+    expect(detectHtmlLang('<html lang="en-US"><body></body></html>')).toBe("en");
+    expect(detectHtmlLang('<html lang="uk"><body></body></html>')).toBe("uk");
+  });
+
+  it("відсутній або порожній атрибут → null", () => {
+    expect(detectHtmlLang("<html><body>no lang</body></html>")).toBeNull();
+    expect(detectHtmlLang('<html lang=""><body></body></html>')).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { eq, and, isNotNull, inArray, ilike, ne } from "drizzle-orm";
+import { eq, and, isNotNull, inArray, ilike, ne, sql } from "drizzle-orm";
 import {
   createDb,
   productDrafts,
@@ -12,6 +12,7 @@ import {
 } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
+import { normalizeBrand, normalizeCategoryPath } from "./taxonomy.js";
 
 /**
  * Resolver-воркер: споживає `draft.normalized`, робить entity resolution
@@ -33,28 +34,45 @@ async function main() {
       const [draft] = await db.select().from(productDrafts).where(eq(productDrafts.id, draftId)).limit(1);
       if (!draft || !draft.normalized) return;
 
+      // Нормалізація таксономії (Етап D): суб-бренд → материнський (Avent→Philips),
+      // щоб і entity-resolution, і фасет вендорів працювали на канонічному бренді.
+      const brand = normalizeBrand(draft.brand);
+
       // 1. Exact match: GTIN → brand+MPN → URL товару → brand+name
       const [snap] = await db
         .select({ url: pageSnapshots.url })
         .from(pageSnapshots)
         .where(eq(pageSnapshots.id, draft.snapshotId))
         .limit(1);
-      const existing = await findExisting(db, draft.brand, draft.mpn, draft.gtin, draft.name, snap?.url ?? null);
+      const existing = await findExisting(db, brand, draft.mpn, draft.gtin, draft.name, snap?.url ?? null);
 
       const revisionId = await db.transaction(async (tx) => {
         let productId = existing?.id;
         if (!productId) {
-          const [p] = await tx
+          // onConflict за partial-unique (brand,name) WHERE active закриває гонку: якщо
+          // інший консюмер щойно вставив цей самий товар — insert нічого не поверне,
+          // і ми беремо наявний (замість створення дубля).
+          const inserted = await tx
             .insert(products)
             .values({
-              brand: draft.brand,
+              brand,
               name: draft.name,
               mpn: draft.mpn ?? null,
               gtin: draft.gtin ?? null,
               status: "active",
             })
+            .onConflictDoNothing({ target: [products.brand, products.name], where: sql`status = 'active'` })
             .returning({ id: products.id });
-          productId = p!.id;
+          if (inserted[0]) {
+            productId = inserted[0].id;
+          } else {
+            const [ex] = await tx
+              .select({ id: products.id })
+              .from(products)
+              .where(and(eq(products.brand, brand), eq(products.name, draft.name), eq(products.status, "active")))
+              .limit(1);
+            productId = ex!.id;
+          }
         } else if (looksLikeSlug(existing!.name) && /\s/.test(draft.name)) {
           // назва базової сторінки часом «слизька» (ProArt-Display-PA278QV-Gen2);
           // чистіша назва з BreadcrumbList /techspec/ ("ProArt Display PA278QV") — краща.
@@ -89,16 +107,18 @@ async function main() {
           await tx.insert(productTexts).values({
             productId,
             section: d.section,
-            lang: "uk",
+            // Мова джерела з драфта; легасі-драфти без мови → BC-дефолт "uk".
+            lang: draft.lang ?? "uk",
             text: d.text,
             sourceSnapshotId: draft.snapshotId,
           });
         }
 
         // append-only revision — денормалізований знімок канонічної сутності.
-        // categoryPath беремо з крихт джерела (draft), доки нема власної таксономії.
+        // categoryPath — нормалізовані крихти джерела (Етап D: без серій/шуму, композити
+        // розбито, дедуп) для чистого фасета категорій.
         const snapshot = await buildSnapshot(tx, productId);
-        snapshot.categoryPath = (draft.categoryRaw as string[]) ?? [];
+        snapshot.categoryPath = normalizeCategoryPath(draft.categoryRaw as string[]);
         // медіа (фото товару) — з крихт джерела; денормалізуємо в знімок ревізії,
         // щоб картки/вікі показували реальні зображення без окремої таблиці.
         snapshot.media = (draft.media as { type: string; url: string }[]) ?? [];
@@ -107,7 +127,14 @@ async function main() {
           .values({ productId, snapshot })
           .returning({ id: productRevisions.id });
 
-        await tx.update(products).set({ currentRevisionId: rev!.id, updatedAt: new Date() }).where(eq(products.id, productId));
+        // денормалізуємо у products поля каталогу (categoryPath, thumbnail) з поточної
+        // ревізії — щоб фільтр/фасети/список не читали величезний snapshot усіх ревізій.
+        const thumbnail =
+          snapshot.media.find((m) => m.type === "image" && /^https?:\/\//.test(m.url))?.url ?? null;
+        await tx
+          .update(products)
+          .set({ currentRevisionId: rev!.id, categoryPath: snapshot.categoryPath, thumbnail, updatedAt: new Date() })
+          .where(eq(products.id, productId));
         await tx.update(productDrafts).set({ resolvedProductId: productId }).where(eq(productDrafts.id, draftId));
 
         await tx.insert(outbox).values({
