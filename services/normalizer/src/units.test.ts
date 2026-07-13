@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeValue } from "./units.js";
+import { normalizeValue, guessUnit } from "./units.js";
 
 describe("normalizeValue — канонізація одиниць до SI", () => {
   it("десяткова кома → крапка, кирилична одиниця → SI", () => {
@@ -87,5 +87,52 @@ describe("normalizeValue — розширений парсер (BC)", () => {
   it("дюйми та кут", () => {
     expect(normalizeValue("27 дюймів")).toEqual({ value: 27, unit: "inch" });
     expect(normalizeValue("178 °")).toEqual({ value: 178, unit: "°" });
+  });
+});
+
+describe("normalizeValue — англомовні джерела (imperial + EN-токени)", () => {
+  it("унції та фунти → kg", () => {
+    expect(normalizeValue("4.9 oz")).toEqual({ value: 0.139, unit: "kg" });
+    expect(normalizeValue("1 lb")).toEqual({ value: 0.454, unit: "kg" });
+  });
+
+  it("дюйми: 'inches' і символ \" → inch", () => {
+    expect(normalizeValue("27 inches")).toEqual({ value: 27, unit: "inch" });
+    expect(normalizeValue('27"')).toEqual({ value: 27, unit: "inch" });
+  });
+
+  it("фути → mm", () => {
+    expect(normalizeValue("6 ft")).toEqual({ value: 1828.8, unit: "mm" });
+  });
+
+  it("EN-префікс 'up to' + дні → години", () => {
+    expect(normalizeValue("Up to 70 days")).toEqual({ value: 1680, unit: "h" });
+  });
+
+  it("dpi та rpm зберігаються без конверсії", () => {
+    expect(normalizeValue("8000 dpi")).toEqual({ value: 8000, unit: "dpi" });
+    expect(normalizeValue("1200 rpm")).toEqual({ value: 1200, unit: "rpm" });
+  });
+
+  it("секунди → s", () => {
+    expect(normalizeValue("60 sec")).toEqual({ value: 60, unit: "s" });
+  });
+});
+
+describe("guessUnit — EN-мітки атрибутів", () => {
+  it("вага/розміри/діаметр EN", () => {
+    expect(guessUnit("Weight")).toBe("kg");
+    expect(guessUnit("Diameter")).toBe("mm");
+    expect(guessUnit("Thickness")).toBe("mm");
+  });
+
+  it("автономність та роздільність сенсора", () => {
+    expect(guessUnit("Battery Life")).toBe("h");
+    expect(guessUnit("Runtime")).toBe("h");
+    expect(guessUnit("Tracking resolution")).toBe("dpi");
+  });
+
+  it("бездротова дальність", () => {
+    expect(guessUnit("Wireless range")).toBe("m");
   });
 });
