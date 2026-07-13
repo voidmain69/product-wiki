@@ -107,7 +107,14 @@ async function main() {
           .values({ productId, snapshot })
           .returning({ id: productRevisions.id });
 
-        await tx.update(products).set({ currentRevisionId: rev!.id, updatedAt: new Date() }).where(eq(products.id, productId));
+        // денормалізуємо у products поля каталогу (categoryPath, thumbnail) з поточної
+        // ревізії — щоб фільтр/фасети/список не читали величезний snapshot усіх ревізій.
+        const thumbnail =
+          snapshot.media.find((m) => m.type === "image" && /^https?:\/\//.test(m.url))?.url ?? null;
+        await tx
+          .update(products)
+          .set({ currentRevisionId: rev!.id, categoryPath: snapshot.categoryPath, thumbnail, updatedAt: new Date() })
+          .where(eq(products.id, productId));
         await tx.update(productDrafts).set({ resolvedProductId: productId }).where(eq(productDrafts.id, draftId));
 
         await tx.insert(outbox).values({

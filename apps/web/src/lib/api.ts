@@ -36,9 +36,13 @@ export async function fetchProducts(query: ProductQuery = {}): Promise<ProductLi
   return (await res.json()) as ProductListResponse;
 }
 
-export async function fetchFacets(q?: string): Promise<ProductFacets> {
+export async function fetchFacets(
+  filters: { q?: string; brand?: string; category?: string } = {},
+): Promise<ProductFacets> {
   const url = new URL(`${API}/products/facets`);
-  if (q) url.searchParams.set("q", q);
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) url.searchParams.set(k, String(v));
+  }
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return { brands: [], categories: [] };
   return (await res.json()) as ProductFacets;

@@ -35,7 +35,6 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
     const [{ n: total }] = (await db
       .select({ n: sql<number>`count(*)::int` })
       .from(products)
-      .leftJoin(productRevisions, eq(productRevisions.id, products.currentRevisionId))
       .where(where)) as [{ n: number }];
 
     const rows = await db
@@ -43,11 +42,11 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
         productId: products.id,
         brand: products.brand,
         name: products.name,
-        revisionId: products.currentRevisionId,
+        categoryPath: products.categoryPath,
+        thumbnail: products.thumbnail,
         updatedAt: products.updatedAt,
       })
       .from(products)
-      .leftJoin(productRevisions, eq(productRevisions.id, products.currentRevisionId))
       .where(where)
       .orderBy(...orderBy(p.sort))
       .limit(p.limit)
@@ -56,7 +55,8 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
     const items: ProductListItem[] = [];
     for (const r of rows) {
       // повторні знімки лишають дублі атрибутів (та сама мітка з різних snapshot) —
-      // дедуплікуємо за міткою й беремо 3 ключові.
+      // дедуплікуємо за міткою й беремо 3 ключові. categoryPath/thumbnail — денормалізовані
+      // у products (без читання величезного snapshot).
       const specRows = await db
         .select({ label: attributeOntology.label, value: productAttributes.valueRaw, unit: productAttributes.unitCanonical })
         .from(productAttributes)
@@ -71,13 +71,12 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
         keySpecs.push({ label: s.label, value: `${s.value}${s.unit ? " " + s.unit : ""}` });
         if (keySpecs.length >= 3) break;
       }
-      const snap = await revisionSnapshot(db, r.revisionId);
       items.push({
         productId: r.productId,
         brand: r.brand,
         name: r.name,
-        categoryPath: snap?.categoryPath ?? [],
-        thumbnail: firstImage(snap?.media),
+        categoryPath: r.categoryPath ?? [],
+        thumbnail: r.thumbnail && /^https?:\/\//.test(r.thumbnail) ? r.thumbnail : null,
         keySpecs,
         updatedAt: r.updatedAt.toISOString(),
       });
@@ -87,28 +86,35 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
     return body;
   });
 
-  // Фасети для фільтрів: бренди й категорії з лічильниками (звужуються за пошуком q).
+  // Фасети для фільтрів — контекстні: кожен вимір рахується з урахуванням ІНШИХ активних
+  // фільтрів. Тобто список категорій звужується до обраного бренду (обрав вендора →
+  // бачиш лише його категорії), а список брендів — до обраної категорії; обидва — за q.
+  // Власний вимір не застосовуємо, щоб можна було перемикатися всередині нього.
   app.get("/products/facets", async (req) => {
-    const q = (req.query as { q?: string }).q?.trim();
-    const qCond = q ? sql`and (${products.name} ilike ${"%" + q + "%"} or ${products.brand} ilike ${"%" + q + "%"})` : sql``;
+    const { q: rawQ, brand, category } = req.query as { q?: string; brand?: string; category?: string };
+    const q = rawQ?.trim() || undefined;
 
+    const qCond = q ? sql` and (${products.name} ilike ${"%" + q + "%"} or ${products.brand} ilike ${"%" + q + "%"})` : sql``;
+    const brandCond = brand ? sql` and ${products.brand} = ${brand}` : sql``;
+    const catCond = category ? sql` and ${products.categoryPath} @> ${JSON.stringify([category])}::jsonb` : sql``;
+
+    // бренди: звужені за обраною категорією (+q), але НЕ за брендом — щоб перемикатися
     const brandRows = await db.execute<{ value: string; count: number }>(sql`
       select ${products.brand} as value, count(*)::int as count
       from ${products}
-      where ${products.status} = 'active' ${qCond}
+      where ${products.status} = 'active'${qCond}${catCond}
       group by ${products.brand}
       order by count desc, value asc
       limit 60
     `);
 
-    // категорія лежить у денормалізованому знімку ревізії (масив), тож розкладаємо
-    // jsonb-масив і рахуємо кожен рівень окремо.
+    // категорії: звужені за обраним брендом (+q), але НЕ за категорією. categoryPath —
+    // денормалізований масив у products (без читання ревізій), тож розкладаємо й рахуємо рівні.
     const catRows = await db.execute<{ value: string; count: number }>(sql`
       select elem as value, count(*)::int as count
-      from ${products} p
-      join ${productRevisions} r on r.id = p.current_revision_id
-      cross join lateral jsonb_array_elements_text(r.snapshot -> 'categoryPath') as elem
-      where p.status = 'active' ${qCond}
+      from ${products}
+      cross join lateral jsonb_array_elements_text(${products.categoryPath}) as elem
+      where ${products.status} = 'active'${qCond}${brandCond}
       group by elem
       order by count desc, value asc
       limit 40
@@ -157,8 +163,9 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
       : [];
     const snapById = new Map(snaps.map((s) => [s.id, s]));
 
+    // categoryPath — денормалізований у products; зображення беремо зі знімка (один товар).
+    const categoryPath = p.categoryPath ?? [];
     const snap = await revisionSnapshot(db, p.currentRevisionId);
-    const categoryPath = snap?.categoryPath ?? [];
     const images = (snap?.media ?? [])
       .filter((m) => m.type === "image" && /^https?:\/\//.test(m.url))
       .map((m) => m.url);
@@ -211,8 +218,9 @@ function listWhere(p: ReturnType<typeof parseListParams>): SQL | undefined {
   }
   if (p.brand) conds.push(eq(products.brand, p.brand));
   if (p.category) {
-    // знімок ревізії містить categoryPath: масив рядків → перевіряємо входження рівня
-    conds.push(sql`(${productRevisions.snapshot} -> 'categoryPath') @> ${JSON.stringify([p.category])}::jsonb`);
+    // categoryPath денормалізований у products (GIN ix_product_category_gin) — containment
+    // б'є лише в поточні товари (1 рядок/товар), без детоасту history-ревізій.
+    conds.push(sql`${products.categoryPath} @> ${JSON.stringify([p.category])}::jsonb`);
   }
   return and(...conds);
 }
@@ -241,9 +249,4 @@ async function revisionSnapshot(
     .where(eq(productRevisions.id, revisionId))
     .limit(1);
   return (rev?.snapshot as RevisionSnapshot) ?? null;
-}
-
-/** Перше валідне http-зображення з медіа знімка. */
-function firstImage(media: { type: string; url: string }[] | undefined): string | null {
-  return media?.find((m) => m.type === "image" && /^https?:\/\//.test(m.url))?.url ?? null;
 }

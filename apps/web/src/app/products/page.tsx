@@ -42,7 +42,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
   const [{ items, total }, facets] = await Promise.all([
     fetchProducts({ q, brand, category, sort: sort as never, page, limit: LIMIT }),
-    fetchFacets(q),
+    fetchFacets({ q, brand, category }),
   ]);
 
   const pages = Math.max(1, Math.ceil(total / LIMIT));

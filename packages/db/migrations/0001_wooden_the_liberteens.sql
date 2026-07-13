@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "ix_prodrev_category_gin" ON "product_revisions" USING gin (("snapshot" -> 'categoryPath') jsonb_path_ops);
