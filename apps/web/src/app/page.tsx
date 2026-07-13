@@ -892,7 +892,7 @@ function WikiPanel({
         <div className="pw-scroll" style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 18 }}>
           {/* шапка товару */}
           <div style={{ display: "flex", gap: 16 }}>
-            <Thumb src={null} size={96} radius={12} />
+            <Thumb src={detail.images[0] ?? null} size={96} radius={12} />
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={{ font: `600 19px ${SERIF}`, letterSpacing: "-.01em", lineHeight: 1.2 }}>
                 {detail.brand} {detail.name}

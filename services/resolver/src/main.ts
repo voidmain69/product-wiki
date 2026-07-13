@@ -98,6 +98,9 @@ async function main() {
         // categoryPath беремо з крихт джерела (draft), доки нема власної таксономії.
         const snapshot = await buildSnapshot(tx, productId);
         snapshot.categoryPath = (draft.categoryRaw as string[]) ?? [];
+        // медіа (фото товару) — з крихт джерела; денормалізуємо в знімок ревізії,
+        // щоб картки/вікі показували реальні зображення без окремої таблиці.
+        snapshot.media = (draft.media as { type: string; url: string }[]) ?? [];
         const [rev] = await tx
           .insert(productRevisions)
           .values({ productId, snapshot })
@@ -227,6 +230,7 @@ async function buildSnapshot(tx: DbOrTx, productId: string) {
     brand: p?.brand,
     name: p?.name,
     categoryPath: [] as string[],
+    media: [] as { type: string; url: string }[],
     attributes: attrs.map((a) => ({
       key: a.attrKey,
       valueCanonical: a.valueCanonical,
