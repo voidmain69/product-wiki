@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { createDb, productDrafts, attributeOntology, outbox } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
-import { normalizeValue } from "./units.js";
+import { normalizeValue, guessUnit } from "./units.js";
 
 /**
  * Normalizer-воркер: споживає `draft.extracted`, канонізує одиниці та мапить
@@ -16,6 +16,8 @@ async function main() {
   const bus = await EventBus.connect();
   const ontology = await db.select().from(attributeOntology);
   const aliasIndex = buildAliasIndex(ontology);
+  // unit-хінт за канонічним ключем (для «голих» чисел, де одиниця відома з ключа, не з рядка)
+  const unitHint = new Map<string, string | null>(ontology.map((o) => [o.key, o.unitCanonical]));
 
   console.log("normalizer: підписка на", EventSubjects.DraftExtracted);
 
@@ -46,13 +48,18 @@ async function main() {
             // resolver пропускає canonicalKey=null, а API робить INNER JOIN
             // product_attributes × attribute_ontology (мітка для показу).
             canonicalKey = slugKey(rawKey);
+            // unit-хінт одразу з мітки (guessUnit) — щоб «голі» числа нового ключа теж
+            // мали одиницю без окремого renormalize-проходу.
+            const hint = guessUnit(rawKey);
             await tx
               .insert(attributeOntology)
-              .values({ key: canonicalKey, label: rawKey, dataType: "string", aliases: [rawKey] })
+              .values({ key: canonicalKey, label: rawKey, dataType: "string", unitCanonical: hint, aliases: [rawKey] })
               .onConflictDoNothing();
             aliasIndex.set(rawKey.toLowerCase(), canonicalKey);
+            unitHint.set(canonicalKey, hint);
           }
-          const { value, unit } = normalizeValue(a.value, a.unit);
+          // одиниця з рядка має пріоритет; інакше — хінт ключа онтології
+          const { value, unit } = normalizeValue(a.value, a.unit ?? unitHint.get(canonicalKey) ?? undefined);
           normalized.push({ rawKey, canonicalKey, value, unit, valueRaw: a.value });
         }
 
