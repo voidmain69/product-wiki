@@ -15,7 +15,7 @@
     "@wiki/events": "workspace:*",
     "@wiki/engine-adapters": "workspace:*",
     "@wiki/storage": "workspace:*",
-    "drizzle-orm": "^0.36.0",
+    "drizzle-orm": "^0.45.2",
     "ioredis": "^5.4.1",
     "playwright": "^1.48.0",
     "undici": "^6.19.0"
