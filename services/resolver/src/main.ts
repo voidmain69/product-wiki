@@ -1,4 +1,4 @@
-import { eq, and, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, isNotNull, inArray, ilike, ne } from "drizzle-orm";
 import {
   createDb,
   productDrafts,
@@ -7,6 +7,7 @@ import {
   productAttributes,
   productTexts,
   pageSnapshots,
+  mergeQueue,
   outbox,
 } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
@@ -118,10 +119,16 @@ async function main() {
             payload: { productId, revisionId: rev!.id },
           },
         });
-        return rev!.id;
+        return { revisionId: rev!.id, productId: productId!, created: !existing };
       });
 
-      console.log(`resolved draft ${draftId} → revision ${revisionId}`);
+      // Fuzzy resolution: новий товар міг бути дублем наявного (варіант назви без
+      // спільного MPN/URL) — не зливаємо автоматично (append-only), а ставимо
+      // кандидата в merge_queue на рішення (людина/авто-політика).
+      if (revisionId.created) {
+        await enqueueMergeCandidate(db, revisionId.productId, draft.brand, draft.name).catch(() => void 0);
+      }
+      console.log(`resolved draft ${draftId} → revision ${revisionId.revisionId}`);
     },
   );
 
@@ -192,6 +199,56 @@ function urlCandidates(url: string): string[] {
 /** Схоже на slug (є дефіси, нема пробілів), напр. "ProArt-Display-PA278QV-Gen2". */
 function looksLikeSlug(s: string): boolean {
   return /-/.test(s) && !/\s/.test(s);
+}
+
+/**
+ * Ставить кандидата на злиття, якщо серед товарів того ж бренду є схожа назва.
+ * Пошук обмежуємо за модель-токеном (ILIKE), схожість — Jaccard за токенами.
+ * Не зливаємо тут — лише черга на рішення (fuzzy → merge_queue).
+ */
+async function enqueueMergeCandidate(
+  db: ReturnType<typeof createDb>,
+  newProductId: string,
+  brand: string,
+  name: string,
+): Promise<void> {
+  const token = modelToken(name);
+  if (!token) return;
+  const cands = await db
+    .select({ id: products.id, name: products.name })
+    .from(products)
+    .where(and(eq(products.brand, brand), ilike(products.name, `%${token}%`), ne(products.id, newProductId)))
+    .limit(10);
+
+  let best: { id: string; sim: number } | null = null;
+  for (const c of cands) {
+    const sim = nameSimilarity(name, c.name);
+    if (!best || sim > best.sim) best = { id: c.id, sim };
+  }
+  if (best && best.sim >= 0.6 && best.sim < 1) {
+    await db
+      .insert(mergeQueue)
+      .values({ leftProductId: best.id, rightProductId: newProductId, similarity: best.sim, status: "pending" })
+      .onConflictDoNothing();
+  }
+}
+
+/** Найдовший алфа-цифровий токен із цифрою (модель-код, напр. "PA278QV"), інакше — найдовший. */
+function modelToken(name: string): string | null {
+  const tokens = name.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3);
+  const withDigit = tokens.filter((t) => /\d/.test(t)).sort((a, b) => b.length - a.length);
+  return withDigit[0] ?? tokens.sort((a, b) => b.length - a.length)[0] ?? null;
+}
+
+/** Jaccard за нормалізованими токенами назви (0..1). */
+function nameSimilarity(a: string, b: string): number {
+  const toks = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const A = toks(a);
+  const B = toks(b);
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / (A.size + B.size - inter);
 }
 
 /** Транзакція або звичайне підключення — buildSnapshot працює з обома. */
