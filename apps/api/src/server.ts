@@ -39,7 +39,7 @@ async function main() {
     ml: new MlClient(),
     qdrant: new QdrantIndex(new MlClient()),
   };
-  const sessions = new SessionStore();
+  const sessions = new SessionStore(deps.llm);
 
   app.get("/health", async () => ({ ok: true }));
   await registerProductRoutes(app);
