@@ -1,4 +1,4 @@
-import { eq, ilike, desc, inArray } from "drizzle-orm";
+import { and, eq, ilike, or, sql, desc, asc, inArray, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import {
   createDb,
@@ -9,7 +9,13 @@ import {
   pageSnapshots,
   productRevisions,
 } from "@wiki/db";
-import type { ProductDetail, ProductListItem } from "@wiki/contracts";
+import type {
+  ProductDetail,
+  ProductListItem,
+  ProductListResponse,
+  ProductFacets,
+} from "@wiki/contracts";
+import { parseListParams } from "./products-query.js";
 
 /**
  * REST для SSR-сторінок товарів («вікіпедія»). apps/web не має доступу до БД
@@ -19,30 +25,52 @@ import type { ProductDetail, ProductListItem } from "@wiki/contracts";
 export async function registerProductRoutes(app: FastifyInstance): Promise<void> {
   const db = createDb();
 
-  // Список / пошук за назвою (для індексної сторінки та автокомпліту)
+  // Каталог: пошук + фільтри (бренд/категорія) + сортування + пагінація.
+  // Повертає сторінку та повну кількість (для пагінації в UI).
   app.get("/products", async (req) => {
-    const q = (req.query as { q?: string }).q?.trim();
+    const p = parseListParams(req.query as Record<string, unknown>);
+    const where = listWhere(p);
+
+    // total для пагінації — окремим дешевим count(*) з тим самим фільтром
+    const [{ n: total }] = (await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(products)
+      .leftJoin(productRevisions, eq(productRevisions.id, products.currentRevisionId))
+      .where(where)) as [{ n: number }];
+
     const rows = await db
       .select({
         productId: products.id,
         brand: products.brand,
         name: products.name,
         revisionId: products.currentRevisionId,
+        updatedAt: products.updatedAt,
       })
       .from(products)
-      .where(q ? ilike(products.name, `%${q}%`) : undefined)
-      .orderBy(desc(products.updatedAt))
-      .limit(50);
+      .leftJoin(productRevisions, eq(productRevisions.id, products.currentRevisionId))
+      .where(where)
+      .orderBy(...orderBy(p.sort))
+      .limit(p.limit)
+      .offset(p.offset);
 
     const items: ProductListItem[] = [];
     for (const r of rows) {
-      const specs = await db
+      // повторні знімки лишають дублі атрибутів (та сама мітка з різних snapshot) —
+      // дедуплікуємо за міткою й беремо 3 ключові.
+      const specRows = await db
         .select({ label: attributeOntology.label, value: productAttributes.valueRaw, unit: productAttributes.unitCanonical })
         .from(productAttributes)
         .innerJoin(attributeOntology, eq(productAttributes.attrKey, attributeOntology.key))
         .where(eq(productAttributes.productId, r.productId))
-        .limit(3);
-      // categoryPath і фото — зі знімка поточної ревізії (денормалізовано в resolver)
+        .limit(24);
+      const keySpecs: { label: string; value: string }[] = [];
+      const seenLabel = new Set<string>();
+      for (const s of specRows) {
+        if (seenLabel.has(s.label)) continue;
+        seenLabel.add(s.label);
+        keySpecs.push({ label: s.label, value: `${s.value}${s.unit ? " " + s.unit : ""}` });
+        if (keySpecs.length >= 3) break;
+      }
       const snap = await revisionSnapshot(db, r.revisionId);
       items.push({
         productId: r.productId,
@@ -50,10 +78,47 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
         name: r.name,
         categoryPath: snap?.categoryPath ?? [],
         thumbnail: firstImage(snap?.media),
-        keySpecs: specs.map((s) => ({ label: s.label, value: `${s.value}${s.unit ? " " + s.unit : ""}` })),
+        keySpecs,
+        updatedAt: r.updatedAt.toISOString(),
       });
     }
-    return { items };
+
+    const body: ProductListResponse = { items, total };
+    return body;
+  });
+
+  // Фасети для фільтрів: бренди й категорії з лічильниками (звужуються за пошуком q).
+  app.get("/products/facets", async (req) => {
+    const q = (req.query as { q?: string }).q?.trim();
+    const qCond = q ? sql`and (${products.name} ilike ${"%" + q + "%"} or ${products.brand} ilike ${"%" + q + "%"})` : sql``;
+
+    const brandRows = await db.execute<{ value: string; count: number }>(sql`
+      select ${products.brand} as value, count(*)::int as count
+      from ${products}
+      where ${products.status} = 'active' ${qCond}
+      group by ${products.brand}
+      order by count desc, value asc
+      limit 60
+    `);
+
+    // категорія лежить у денормалізованому знімку ревізії (масив), тож розкладаємо
+    // jsonb-масив і рахуємо кожен рівень окремо.
+    const catRows = await db.execute<{ value: string; count: number }>(sql`
+      select elem as value, count(*)::int as count
+      from ${products} p
+      join ${productRevisions} r on r.id = p.current_revision_id
+      cross join lateral jsonb_array_elements_text(r.snapshot -> 'categoryPath') as elem
+      where p.status = 'active' ${qCond}
+      group by elem
+      order by count desc, value asc
+      limit 40
+    `);
+
+    const facets: ProductFacets = {
+      brands: [...brandRows].map((r) => ({ value: r.value, count: Number(r.count) })),
+      categories: [...catRows].map((r) => ({ value: r.value, count: Number(r.count) })),
+    };
+    return facets;
   });
 
   // Деталі товару з provenance на кожен атрибут/текст
@@ -98,6 +163,18 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
       .filter((m) => m.type === "image" && /^https?:\/\//.test(m.url))
       .map((m) => m.url);
 
+    // Дедуплікація: повторні знімки того самого товару лишають дублі атрибутів/текстів
+    // (та сама мітка з різних sourceSnapshotId). Показуємо по одному запису на атрибут —
+    // із найсвіжішим provenance (останній знімок), щоб «вікі» була чистою й актуальною.
+    const attrByKey = new Map<string, { row: (typeof attrRows)[number]; date: Date }>();
+    for (const a of attrRows) {
+      const s = snapById.get(a.snapId);
+      if (!s) continue;
+      const prev = attrByKey.get(a.key);
+      if (!prev || s.fetchedAt > prev.date) attrByKey.set(a.key, { row: a, date: s.fetchedAt });
+    }
+    const textSeen = new Set<string>();
+
     const detail: ProductDetail = {
       productId: p.id,
       brand: p.brand,
@@ -107,20 +184,44 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
       categoryPath,
       updatedAt: p.updatedAt.toISOString(),
       images,
-      attributes: attrRows.flatMap((a) => {
-        const s = snapById.get(a.snapId);
-        return s
-          ? [{ key: a.key, label: a.label, value: a.value, unit: a.unit, sourceUrl: s.url, snapshotDate: s.fetchedAt.toISOString() }]
-          : [];
+      attributes: [...attrByKey.values()].flatMap(({ row: a }) => {
+        const s = snapById.get(a.snapId)!;
+        return [{ key: a.key, label: a.label, value: a.value, unit: a.unit, sourceUrl: s.url, snapshotDate: s.fetchedAt.toISOString() }];
       }),
       texts: textRows.flatMap((t) => {
         const s = snapById.get(t.snapId);
-        return s ? [{ section: t.section, text: t.text, sourceUrl: s.url }] : [];
+        if (!s) return [];
+        const dedupeKey = `${t.section}::${t.text}`;
+        if (textSeen.has(dedupeKey)) return [];
+        textSeen.add(dedupeKey);
+        return [{ section: t.section, text: t.text, sourceUrl: s.url }];
       }),
       sources: snaps.map((s) => ({ url: s.url, fetchedAt: s.fetchedAt.toISOString() })),
     };
     return detail;
   });
+}
+
+/** WHERE каталогу: активні + пошук(name|brand) + бренд + категорія (jsonb-масив знімка). */
+function listWhere(p: ReturnType<typeof parseListParams>): SQL | undefined {
+  const conds: SQL[] = [eq(products.status, "active")];
+  if (p.q) {
+    const like = `%${p.q}%`;
+    conds.push(or(ilike(products.name, like), ilike(products.brand, like))!);
+  }
+  if (p.brand) conds.push(eq(products.brand, p.brand));
+  if (p.category) {
+    // знімок ревізії містить categoryPath: масив рядків → перевіряємо входження рівня
+    conds.push(sql`(${productRevisions.snapshot} -> 'categoryPath') @> ${JSON.stringify([p.category])}::jsonb`);
+  }
+  return and(...conds);
+}
+
+/** ORDER BY за ключем сортування (свіжість/назва/бренд). */
+function orderBy(sort: ReturnType<typeof parseListParams>["sort"]): SQL[] {
+  if (sort === "name") return [asc(products.name)];
+  if (sort === "brand") return [asc(products.brand), asc(products.name)];
+  return [desc(products.updatedAt)];
 }
 
 interface RevisionSnapshot {

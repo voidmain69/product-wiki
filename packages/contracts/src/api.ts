@@ -98,8 +98,24 @@ export const ProductListItem = z.object({
   categoryPath: z.array(z.string()),
   thumbnail: z.string().url().nullable(),
   keySpecs: z.array(z.object({ label: z.string(), value: z.string() })),
+  updatedAt: z.string(), // ISO — для свіжості й сортування у каталозі
 });
 export type ProductListItem = z.infer<typeof ProductListItem>;
+
+/** Відповідь списку товарів: сторінка + повна кількість (для пагінації). */
+export const ProductListResponse = z.object({
+  items: z.array(ProductListItem),
+  total: z.number().int().nonnegative(),
+});
+export type ProductListResponse = z.infer<typeof ProductListResponse>;
+
+/** Фасети каталогу: доступні бренди й категорії з лічильниками (для фільтрів). */
+export const FacetBucket = z.object({ value: z.string(), count: z.number().int().nonnegative() });
+export const ProductFacets = z.object({
+  brands: z.array(FacetBucket),
+  categories: z.array(FacetBucket),
+});
+export type ProductFacets = z.infer<typeof ProductFacets>;
 
 /** Атрибут з provenance — кожна цифра знає своє першоджерело (інваріант 5). */
 export const ProductDetailAttribute = z.object({
