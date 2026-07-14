@@ -37,6 +37,10 @@ async function main() {
     .select({ nr: sql<number>`count(*)::int` })
     .from(chatQueries)
     .where(and(gte(chatQueries.createdAt, cutoff), eq(chatQueries.noResults, true)))) as [{ nr: number }];
+  const [{ avg }] = (await db
+    .select({ avg: sql<number | null>`avg(${chatQueries.faithfulness})` })
+    .from(chatQueries)
+    .where(gte(chatQueries.createdAt, cutoff))) as [{ avg: number | null }];
 
   const topNoResults = await db
     .select({ q: chatQueries.queryText, n: sql<number>`count(*)::int`, last: sql<string>`max(${chatQueries.createdAt})` })
@@ -47,7 +51,8 @@ async function main() {
     .limit(limit);
 
   const share = total > 0 ? ((nr / total) * 100).toFixed(1) : "0.0";
-  console.log(`\nПопит за ${days} дн.: усього запитів ${total}, «не знаю» ${nr} (${share}%)\n`);
+  const faith = avg === null || avg === undefined ? "—" : (Number(avg) * 100).toFixed(1) + "%";
+  console.log(`\nПопит за ${days} дн.: усього запитів ${total}, «не знаю» ${nr} (${share}%); заземленість чисел (faithfulness): ${faith}\n`);
   if (!topNoResults.length) {
     console.log("Немає no_results-запитів за період — каталог покриває попит.");
     process.exit(0);

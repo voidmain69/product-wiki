@@ -26,6 +26,12 @@ export async function registerAnalyticsRoutes(app: FastifyInstance): Promise<voi
       .from(chatQueries)
       .where(and(gte(chatQueries.createdAt, cutoff), eq(chatQueries.noResults, true)))) as [{ nr: number }];
 
+    // середня заземленість чисел (інваріант 7) серед оцінених відповідей за період
+    const [{ avg }] = (await db
+      .select({ avg: sql<number | null>`avg(${chatQueries.faithfulness})` })
+      .from(chatQueries)
+      .where(gte(chatQueries.createdAt, cutoff))) as [{ avg: number | null }];
+
     const top = async (noResults: boolean): Promise<DemandItem[]> => {
       const rows = await db
         .select({
@@ -50,6 +56,7 @@ export async function registerAnalyticsRoutes(app: FastifyInstance): Promise<voi
       total,
       noResultsTotal: nr,
       noResultsShare: noResultsShare(nr, total),
+      avgFaithfulness: avg === null ? null : Number(avg),
       topNoResults: await top(true),
       topMatched: await top(false),
     };
