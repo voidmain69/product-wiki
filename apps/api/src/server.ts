@@ -9,6 +9,7 @@ import { runChat } from "@wiki/chat-orchestrator";
 import { ChatRequest, type ChatStreamEvent } from "@wiki/contracts";
 import { SessionStore } from "./session.js";
 import { registerProductRoutes } from "./routes/products.js";
+import { registerAnalyticsRoutes } from "./routes/analytics.js";
 
 /**
  * Публічний API. Головний endpoint — POST /chat зі стрімінгом відповіді через SSE.
@@ -43,6 +44,7 @@ async function main() {
 
   app.get("/health", async () => ({ ok: true }));
   await registerProductRoutes(app);
+  await registerAnalyticsRoutes(app);
 
   app.post("/chat", async (req, reply) => {
     const parsed = ChatRequest.safeParse(req.body);
