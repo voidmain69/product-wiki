@@ -10,7 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createDb, products, productRevisions } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import { refreshCanonical } from "./merge-core.js";
