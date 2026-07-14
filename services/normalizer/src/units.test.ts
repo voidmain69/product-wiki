@@ -136,3 +136,18 @@ describe("guessUnit — EN-мітки атрибутів", () => {
     expect(guessUnit("Wireless range")).toBe("m");
   });
 });
+
+describe("normalizeValue — температура (афінна конверсія)", () => {
+  it("°F → °C: (F−32)/1.8", () => {
+    expect(normalizeValue("140°F")).toEqual({ value: 60, unit: "°C" });
+    expect(normalizeValue("32 °F")).toEqual({ value: 0, unit: "°C" });
+    expect(normalizeValue("212℉")).toEqual({ value: 100, unit: "°C" });
+  });
+  it("°C — канонічне, без зміни значення", () => {
+    expect(normalizeValue("40°C")).toEqual({ value: 40, unit: "°C" });
+    expect(normalizeValue("40 ℃")).toEqual({ value: 40, unit: "°C" });
+  });
+  it("голий градус лишається кутом (не температурою)", () => {
+    expect(normalizeValue("178°")).toEqual({ value: 178, unit: "°" });
+  });
+});
