@@ -9,6 +9,7 @@ import { Id, IsoDateTime } from "./common.js";
 
 export const EventSubjects = {
   SourceRegistered: "wiki.source.registered",
+  DiscoveryRequested: "wiki.crawl.discovery_requested",
   UrlDiscovered: "wiki.crawl.url_discovered",
   PageFetched: "wiki.crawl.page_fetched",
   PageUnchanged: "wiki.crawl.page_unchanged",
@@ -35,6 +36,16 @@ const envelope = <T extends z.ZodTypeAny>(subject: EventSubject, payload: T) =>
 
 export const SourceRegistered = envelope(
   EventSubjects.SourceRegistered,
+  z.object({ sourceId: Id }),
+);
+
+/**
+ * Планова ре-дискавері джерела (scheduler за `crawlPolicy.discoveryIntervalDays`):
+ * discovery повторно парсить sitemap/BFS. Redis seen-set дедуплікує → в чергу підуть
+ * лише НОВІ URL (нові товари виробника з часу минулого обходу).
+ */
+export const DiscoveryRequested = envelope(
+  EventSubjects.DiscoveryRequested,
   z.object({ sourceId: Id }),
 );
 
@@ -104,6 +115,7 @@ export const StageFailed = envelope(
 /** Discriminated union усіх подій — для типобезпечного роутингу. */
 export const AnyEvent = z.discriminatedUnion("subject", [
   SourceRegistered,
+  DiscoveryRequested,
   UrlDiscovered,
   PageFetched,
   PageUnchanged,
@@ -118,6 +130,7 @@ export type AnyEvent = z.infer<typeof AnyEvent>;
 /** Мапа subject → schema, зручно для валідації в typed-клієнті. */
 export const EventSchemas = {
   [EventSubjects.SourceRegistered]: SourceRegistered,
+  [EventSubjects.DiscoveryRequested]: DiscoveryRequested,
   [EventSubjects.UrlDiscovered]: UrlDiscovered,
   [EventSubjects.PageFetched]: PageFetched,
   [EventSubjects.PageUnchanged]: PageUnchanged,

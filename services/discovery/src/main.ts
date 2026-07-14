@@ -61,36 +61,53 @@ async function main() {
     return true;
   }
 
-  console.log("discovery: підписка на", EventSubjects.SourceRegistered, "+", EventSubjects.PageFetched);
+  /** (Ре-)дискавері джерела: sitemap → product; не-sitemap entrypoint → listing (BFS). */
+  async function runDiscovery(sourceId: string): Promise<void> {
+    const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
+    if (!source || source.status !== "active") return;
 
-  // ── Спосіб 1/2 старт: sitemap → product; не-sitemap entrypoint → listing (BFS) ──
+    const policy = source.crawlPolicy as CrawlPolicy;
+    const patterns = policy.urlPatterns.map((p) => new RegExp(p));
+    await redis.del(`bfs:pages:${source.id}`); // свіжий бюджет обходу на кожну хвилю
+
+    for (const entry of policy.entrypoints) {
+      if (entry.endsWith(".xml") || entry.endsWith(".xml.gz")) {
+        const urls = await parseSitemap(entry).catch((e) => {
+          console.warn(`sitemap ${entry}: ${(e as Error).message}`);
+          return [] as string[];
+        });
+        for (const url of urls) {
+          if (patterns.some((r) => r.test(url))) await enqueueUrl(source.id, url, "product", 0);
+        }
+      } else {
+        // не-sitemap: каталожна сторінка → обхід через fetcher (kind=listing)
+        await enqueueUrl(source.id, entry, "listing", 0);
+      }
+    }
+    console.log(`discovery done for ${source.name}`);
+  }
+
+  console.log(
+    "discovery: підписка на",
+    EventSubjects.SourceRegistered,
+    "+",
+    EventSubjects.DiscoveryRequested,
+    "+",
+    EventSubjects.PageFetched,
+  );
+
+  // ── Реєстрація джерела → перша дискавері ──
   await bus.subscribe(
     EventSubjects.SourceRegistered,
     "discovery",
-    async (event: EventOf<typeof EventSubjects.SourceRegistered>) => {
-      const [source] = await db.select().from(sources).where(eq(sources.id, event.payload.sourceId)).limit(1);
-      if (!source || source.status !== "active") return;
+    async (event: EventOf<typeof EventSubjects.SourceRegistered>) => runDiscovery(event.payload.sourceId),
+  );
 
-      const policy = source.crawlPolicy as CrawlPolicy;
-      const patterns = policy.urlPatterns.map((p) => new RegExp(p));
-      await redis.del(`bfs:pages:${source.id}`); // свіжий бюджет обходу на (ре)реєстрацію
-
-      for (const entry of policy.entrypoints) {
-        if (entry.endsWith(".xml") || entry.endsWith(".xml.gz")) {
-          const urls = await parseSitemap(entry).catch((e) => {
-            console.warn(`sitemap ${entry}: ${(e as Error).message}`);
-            return [] as string[];
-          });
-          for (const url of urls) {
-            if (patterns.some((r) => r.test(url))) await enqueueUrl(source.id, url, "product", 0);
-          }
-        } else {
-          // не-sitemap: каталожна сторінка → обхід через fetcher (kind=listing)
-          await enqueueUrl(source.id, entry, "listing", 0);
-        }
-      }
-      console.log(`discovery done for ${source.name}`);
-    },
+  // ── Планова ре-дискавері (scheduler) → seen-set віддасть лише нові URL ──
+  await bus.subscribe(
+    EventSubjects.DiscoveryRequested,
+    "discovery-rediscover",
+    async (event: EventOf<typeof EventSubjects.DiscoveryRequested>) => runDiscovery(event.payload.sourceId),
   );
 
   // ── BFS-крок: каталожну (listing) сторінку завантажив fetcher → дістаємо посилання ──

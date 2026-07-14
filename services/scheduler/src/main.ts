@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import Redis from "ioredis";
 import { createDb, sources, pageSnapshots, pageFreshness, productDrafts, chatQueries } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
@@ -12,6 +13,7 @@ import { and, eq, sql, desc, inArray } from "drizzle-orm";
 async function main() {
   const db = createDb();
   const bus = await EventBus.connect();
+  const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 
   // periodic recrawl tick
   const RECRAWL_TICK_MS = 60 * 60 * 1000; // щогодини перевіряємо, що пора перезібрати
@@ -27,8 +29,23 @@ async function main() {
     const hot = [...new Set(recent.flatMap((r) => r.ids ?? []))];
 
     for (const s of active) {
-      const policy = s.crawlPolicy as { recrawlIntervalDays?: number };
+      const policy = s.crawlPolicy as { recrawlIntervalDays?: number; discoveryIntervalDays?: number };
       const cutoff = new Date(Date.now() - (policy.recrawlIntervalDays ?? 30) * 86_400_000);
+
+      // ре-дискавері за інтервалом: NX+EX гарантує не частіше, ніж раз на інтервал
+      // (навіть при рестартах/щогодинних тіках). Discovery через seen-set віддасть лише нові URL.
+      const discDays = policy.discoveryIntervalDays ?? 7;
+      const fresh = await redis.set(`discovery:next:${s.id}`, "1", "EX", discDays * 86_400, "NX");
+      if (fresh) {
+        await bus.publish(EventSubjects.DiscoveryRequested, {
+          id: idFor(`disc:${s.id}:${Date.now()}`),
+          subject: EventSubjects.DiscoveryRequested,
+          traceId: idFor(`disc:${s.id}`),
+          occurredAt: new Date().toISOString(),
+          payload: { sourceId: s.id },
+        });
+        console.log(`scheduler: re-discovery requested for ${s.name}`);
+      }
 
       // 1) застарілі: остання АКТИВНІСТЬ по URL старіша за cutoff. Активність =
       // GREATEST(остання зміна контенту, останній візит). page_snapshots фіксують лише
@@ -89,7 +106,7 @@ async function main() {
   console.log("scheduler: recrawl tick every 1h");
 
   process.on("SIGTERM", async () => {
-    await bus.drain();
+    await Promise.allSettled([bus.drain(), redis.quit()]);
     process.exit(0);
   });
 }
