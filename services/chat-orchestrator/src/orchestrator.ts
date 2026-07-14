@@ -8,6 +8,7 @@ import type { ChatStreamEvent, RetrievedChunk } from "@wiki/contracts";
 import { classifyIntent, toRetrievalFilters } from "./intent.js";
 import { buildComparison } from "./compare.js";
 import { resolveProductsByName } from "./resolve.js";
+import { scoreFaithfulness } from "./faithfulness.js";
 
 export interface OrchestratorDeps {
   db: Database;
@@ -123,11 +124,15 @@ export async function* runChat(
   }
 
   const messages = buildAnswerMessages(ctx.message, citeChunks);
+  let answer = "";
   for await (const token of llm.stream(messages, { temperature: 0.2 })) {
+    answer += token;
     yield { type: "token", text: token };
   }
   yield { type: "done" };
-  await logQuery(db, ctx.sessionId, intent.intent, ctx.message, [...seen], false);
+  // Faithfulness (інваріант 7): чи числа відповіді заземлені в цитованому контексті.
+  const faith = scoreFaithfulness(answer, citeChunks.map((c) => c.text).join("\n"));
+  await logQuery(db, ctx.sessionId, intent.intent, ctx.message, [...seen], false, faith.score);
 }
 
 async function rerank(
@@ -194,10 +199,11 @@ async function logQuery(
   queryText: string,
   matchedProductIds: string[],
   noResults: boolean,
+  faithfulness: number | null = null,
 ): Promise<void> {
   await db
     .insert(chatQueries)
-    .values({ sessionId, intent, queryText, matchedProductIds, noResults })
+    .values({ sessionId, intent, queryText, matchedProductIds, noResults, faithfulness })
     .catch(() => void 0); // аналітика best-effort, не ламає відповідь
 }
 
