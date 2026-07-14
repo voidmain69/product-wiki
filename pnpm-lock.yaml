@@ -516,6 +516,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.11.1
     devDependencies:
       rimraf:
         specifier: ^6.0.1
