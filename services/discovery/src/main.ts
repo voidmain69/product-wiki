@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { Agent, interceptors, request } from "undici";
 import Redis from "ioredis";
 import { eq } from "drizzle-orm";
 import { createDb, sources, crawlTasks } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
+import { parseSitemapXml } from "./sitemap.js";
+
+/** User-Agent із контактом (ввічливість, інваріант 8) — і для sitemap-запитів. */
+const USER_AGENT =
+  "ProductWikiBot/0.1 (+https://product-wiki.example/bot; contact: Info_DIT@erc.ua)";
 
 /**
  * Discovery-воркер: споживає `source.registered`, знаходить сторінки товарів.
@@ -64,17 +70,33 @@ async function main() {
 // undici 8: опцію `maxRedirections` на request прибрано — редиректи лише через інтерцептор.
 const redirectDispatcher = new Agent().compose(interceptors.redirect({ maxRedirections: 3 }));
 
-/** Мінімальний парсер sitemap (плоский або index). Продакшн — потоковий XML-парсер. */
-async function parseSitemap(url: string): Promise<string[]> {
-  const res = await request(url, { dispatcher: redirectDispatcher });
-  const xml = await res.body.text();
-  const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]!.trim());
-  // якщо це sitemap-index — рекурсивно тягнемо вкладені
-  if (/<sitemapindex/i.test(xml)) {
-    const nested = await Promise.all(locs.map((l) => parseSitemap(l).catch(() => [])));
-    return nested.flat();
+/**
+ * Завантажує sitemap і повертає сторінкові URL. Підтримує index (рекурсія з guard за
+ * глибиною ≤2 і за вже відвіданими), .gz (Content-Encoding або суфікс), UA з контактом.
+ * Парсинг XML — чистий `parseSitemapXml`; тут лише I/O.
+ */
+async function parseSitemap(url: string, seen = new Set<string>(), depth = 0): Promise<string[]> {
+  if (depth > 2 || seen.has(url)) return [];
+  seen.add(url);
+  const res = await request(url, {
+    dispatcher: redirectDispatcher,
+    headers: { "user-agent": USER_AGENT },
+  });
+  let buf = Buffer.from(await res.body.arrayBuffer());
+  const enc = res.headers["content-encoding"];
+  if (url.endsWith(".gz") || enc === "gzip" || enc === "x-gzip") {
+    try {
+      buf = gunzipSync(buf);
+    } catch {
+      /* не gzip попри суфікс — лишаємо як є */
+    }
   }
-  return locs;
+  const { entries, nested } = parseSitemapXml(buf.toString("utf8"));
+  if (nested.length) {
+    const sub = await Promise.all(nested.map((n) => parseSitemap(n, seen, depth + 1).catch(() => [])));
+    return sub.flat();
+  }
+  return entries.map((e) => e.loc);
 }
 
 /**
