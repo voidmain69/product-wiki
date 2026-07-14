@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { request } from "undici";
+import { Agent, interceptors, request } from "undici";
 import Redis from "ioredis";
 import { eq } from "drizzle-orm";
 import { createDb, sources, crawlTasks } from "@wiki/db";
@@ -61,9 +61,12 @@ async function main() {
   });
 }
 
+// undici 8: опцію `maxRedirections` на request прибрано — редиректи лише через інтерцептор.
+const redirectDispatcher = new Agent().compose(interceptors.redirect({ maxRedirections: 3 }));
+
 /** Мінімальний парсер sitemap (плоский або index). Продакшн — потоковий XML-парсер. */
 async function parseSitemap(url: string): Promise<string[]> {
-  const res = await request(url, { maxRedirections: 3 });
+  const res = await request(url, { dispatcher: redirectDispatcher });
   const xml = await res.body.text();
   const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]!.trim());
   // якщо це sitemap-index — рекурсивно тягнемо вкладені
@@ -116,7 +119,7 @@ async function crawlCatalog(
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await request(url, { maxRedirections: 3 });
+  const res = await request(url, { dispatcher: redirectDispatcher });
   return res.body.text();
 }
 
