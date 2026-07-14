@@ -7,6 +7,7 @@ import { createDb, sources, crawlTasks } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
 import { parseSitemapXml } from "./sitemap.js";
+import { isProductPage } from "./classify.js";
 
 /** User-Agent із контактом (ввічливість, інваріант 8) — і для sitemap-запитів. */
 const USER_AGENT =
@@ -143,11 +144,6 @@ async function crawlCatalog(
 async function fetchText(url: string): Promise<string> {
   const res = await request(url, { dispatcher: redirectDispatcher });
   return res.body.text();
-}
-
-/** Класифікатор: сторінка товару має schema.org/Product або спец-блок теххарактеристик. */
-function isProductPage(html: string): boolean {
-  return /"@type"\s*:\s*"Product"/.test(html) || /rowTableTitle|PDTechSpec/.test(html);
 }
 
 function extractLinks(html: string, base: string): string[] {
