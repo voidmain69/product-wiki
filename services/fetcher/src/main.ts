@@ -36,6 +36,9 @@ async function main() {
     "fetcher",
     async (event: EventOf<typeof EventSubjects.UrlDiscovered>) => {
       const { sourceId, url } = event.payload;
+      // BFS-метадані протягуємо наскрізь у page.fetched (discovery/extractor гілкуються по kind)
+      const kind = event.payload.kind ?? "product";
+      const depth = event.payload.depth ?? 0;
 
       const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
       if (!source || source.status !== "active") return;
@@ -112,7 +115,7 @@ async function main() {
           payload: {
             id: newId(), subject: EventSubjects.PageFetched, traceId: event.traceId,
             occurredAt: new Date().toISOString(),
-            payload: { sourceId, snapshotRef, url },
+            payload: { sourceId, snapshotRef, url, kind, depth },
           },
         });
       });

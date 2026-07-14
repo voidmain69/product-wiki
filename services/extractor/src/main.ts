@@ -50,9 +50,12 @@ async function main() {
       if (!snap || !snap.htmlKey) return;
 
       const html = await store.getText(snap.htmlKey);
+      // Каталожні (listing) сторінки BFS проганяємо лише детермінованими рівнями (без LLM):
+      // якщо це насправді товар — рівні 1–3 його витягнуть; якщо категорія — тихо null.
       const draft = await runCascade(
         { html, url, sourceId, snapshotRef, apiPayloads: (snap.apiPayloads as unknown[]) ?? [] },
         llm,
+        { allowLlm: (event.payload.kind ?? "product") !== "listing" },
       );
       if (!draft) {
         console.warn(`extractor: нема даних для ${url}`);

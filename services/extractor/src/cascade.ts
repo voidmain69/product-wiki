@@ -417,6 +417,7 @@ function readableText(html: string): string {
 export async function runCascade(
   input: ExtractInput,
   llm: LLMProvider,
+  opts: { allowLlm?: boolean } = {},
 ): Promise<ProductDraft | null> {
   // Спец-характеристики — детерміновано, з кількох джерел:
   //   • <BR>-блок + rowTable-DOM (ASUS /techspec/): монітори / мат.плати / ноутбуки / GPU;
@@ -477,10 +478,15 @@ export async function runCascade(
     }
   }
 
-  // 4. LLM fallback
-  const llmDraft = await fromLlm(llm, input.html).catch(() => null);
-  if (llmDraft && llmDraft.name) {
-    return finalize(input, { ...llmDraft, attributesRaw: mergeAttrs(llmDraft.attributesRaw, specAttrs) }, "llm", 0.6);
+  // 4. LLM fallback — лише коли дозволено. На каталожних (listing) сторінках BFS LLM
+  //    НЕ крутимо: детерміновані рівні 1–3 уже витягли б реальний товар (навіть якщо його
+  //    зловили як listing), а на категорійній сторінці LLM лише марно палив би токени й
+  //    ризикував галюцинацією name з назви розділу.
+  if (opts.allowLlm !== false) {
+    const llmDraft = await fromLlm(llm, input.html).catch(() => null);
+    if (llmDraft && llmDraft.name) {
+      return finalize(input, { ...llmDraft, attributesRaw: mergeAttrs(llmDraft.attributesRaw, specAttrs) }, "llm", 0.6);
+    }
   }
 
   return null;
