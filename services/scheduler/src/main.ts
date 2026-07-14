@@ -28,6 +28,24 @@ async function main() {
       .limit(100);
     const hot = [...new Set(recent.flatMap((r) => r.ids ?? []))];
 
+    // попит без відповіді (no_results): тексти для демандо-керованої ре-дискавері
+    const recentNoResults = await db
+      .select({ q: chatQueries.queryText })
+      .from(chatQueries)
+      .where(eq(chatQueries.noResults, true))
+      .orderBy(desc(chatQueries.createdAt))
+      .limit(200);
+    const noResultsText = recentNoResults.map((r) => r.q.toLowerCase());
+
+    const fireDiscovery = (source: { id: string; name: string }) =>
+      bus.publish(EventSubjects.DiscoveryRequested, {
+        id: idFor(`disc:${source.id}:${Date.now()}`),
+        subject: EventSubjects.DiscoveryRequested,
+        traceId: idFor(`disc:${source.id}`),
+        occurredAt: new Date().toISOString(),
+        payload: { sourceId: source.id },
+      });
+
     for (const s of active) {
       const policy = s.crawlPolicy as { recrawlIntervalDays?: number; discoveryIntervalDays?: number };
       const cutoff = new Date(Date.now() - (policy.recrawlIntervalDays ?? 30) * 86_400_000);
@@ -37,14 +55,20 @@ async function main() {
       const discDays = policy.discoveryIntervalDays ?? 7;
       const fresh = await redis.set(`discovery:next:${s.id}`, "1", "EX", discDays * 86_400, "NX");
       if (fresh) {
-        await bus.publish(EventSubjects.DiscoveryRequested, {
-          id: idFor(`disc:${s.id}:${Date.now()}`),
-          subject: EventSubjects.DiscoveryRequested,
-          traceId: idFor(`disc:${s.id}`),
-          occurredAt: new Date().toISOString(),
-          payload: { sourceId: s.id },
-        });
+        await fireDiscovery(s);
         console.log(`scheduler: re-discovery requested for ${s.name}`);
+      }
+
+      // демандо-керована ре-дискавері: no_results-запит згадує бренд наявного джерела →
+      // товар імовірно є в виробника, але ми його не зібрали → шукаємо новинки позачергово.
+      // Дебаунс раз на добу (окремий ключ), щоб не спамити при повторюваних запитах.
+      const brand = s.name.toLowerCase();
+      if (brand.length >= 3 && noResultsText.some((t) => t.includes(brand))) {
+        const okd = await redis.set(`discovery:demand:${s.id}`, "1", "EX", 86_400, "NX");
+        if (okd) {
+          await fireDiscovery(s);
+          console.log(`scheduler: demand-driven re-discovery for ${s.name}`);
+        }
       }
 
       // 1) застарілі: остання АКТИВНІСТЬ по URL старіша за cutoff. Активність =
