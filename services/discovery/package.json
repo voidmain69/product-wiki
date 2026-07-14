@@ -13,6 +13,7 @@
     "@wiki/contracts": "workspace:*",
     "@wiki/db": "workspace:*",
     "@wiki/events": "workspace:*",
+    "@wiki/storage": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^5.4.1",
     "undici": "^8.7.0"

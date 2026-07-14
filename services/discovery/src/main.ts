@@ -3,29 +3,67 @@ import { gunzipSync } from "node:zlib";
 import { Agent, interceptors, request } from "undici";
 import Redis from "ioredis";
 import { eq } from "drizzle-orm";
-import { createDb, sources, crawlTasks } from "@wiki/db";
+import { createDb, sources, crawlTasks, pageSnapshots } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
+import { ObjectStore } from "@wiki/storage";
 import type { EventOf } from "@wiki/contracts/events";
 import { parseSitemapXml } from "./sitemap.js";
 import { isProductPage } from "./classify.js";
+import { routeLinks } from "./bfs.js";
 
-/** User-Agent із контактом (ввічливість, інваріант 8) — і для sitemap-запитів. */
+/** User-Agent із контактом (ввічливість, інваріант 8) — для sitemap-запитів. */
 const USER_AGENT =
   "ProductWikiBot/0.1 (+https://product-wiki.example/bot; contact: Info_DIT@erc.ua)";
 
+/** Межі каталожного BFS на джерело: щоб не обходити весь сайт (fallback без sitemap). */
+const MAX_DEPTH = 3;
+const MAX_BFS_PAGES = 60;
+const BFS_TTL_SEC = 86_400; // лічильник бюджету живе добу (скидається на ре-дискавері)
+
+interface CrawlPolicy {
+  entrypoints: string[];
+  urlPatterns: string[];
+}
+
 /**
- * Discovery-воркер: споживає `source.registered`, знаходить сторінки товарів.
- * Пріоритет способів: 1) sitemap.xml (~80% виробників), 2) каталожний BFS (TODO),
- * 3) класифікатор сторінки (TODO). Фільтрує URL за crawlPolicy.urlPatterns,
- * дедуплікує через Redis-set, публікує `url.discovered`.
+ * Discovery-воркер. Два способи знайти сторінки товарів:
+ *   1) sitemap.xml (≈80% виробників) — на `source.registered` парсимо й ставимо в чергу
+ *      товарні URL (kind=product);
+ *   2) каталожний BFS — коли entrypoint не sitemap: ставимо його як kind=listing і далі
+ *      ПОДІЄВО обходимо через ВВІЧЛИВИЙ fetcher (robots + rate-limit), а на `page.fetched`
+ *      (kind=listing) дістаємо посилання й розкладаємо на product/listing.
+ * Ніякого власного HTTP до сторінок товарів — лише fetcher (інваріант 8).
  */
 async function main() {
   const db = createDb();
   const bus = await EventBus.connect();
   const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+  const store = new ObjectStore();
 
-  console.log("discovery: підписка на", EventSubjects.SourceRegistered);
+  /** Ідемпотентно ставить URL у чергу (dedup per-source у Redis), публікує url.discovered. */
+  async function enqueueUrl(
+    sourceId: string,
+    url: string,
+    kind: "product" | "listing",
+    depth: number,
+  ): Promise<boolean> {
+    const isNew = await redis.sadd(`seen:${sourceId}`, url);
+    if (!isNew) return false;
+    await db.insert(crawlTasks).values({ sourceId, url, priority: 0, status: "queued" }).onConflictDoNothing();
+    await bus.publish(EventSubjects.UrlDiscovered, {
+      id: idFor(`${kind}:${url}`),
+      subject: EventSubjects.UrlDiscovered,
+      traceId: idFor(url),
+      occurredAt: new Date().toISOString(),
+      // product — дефолт у консюмерів, тож kind/depth ставимо лише для listing (BC).
+      payload: { sourceId, url, priority: 0, ...(kind === "listing" ? { kind, depth } : {}) },
+    });
+    return true;
+  }
 
+  console.log("discovery: підписка на", EventSubjects.SourceRegistered, "+", EventSubjects.PageFetched);
+
+  // ── Спосіб 1/2 старт: sitemap → product; не-sitemap entrypoint → listing (BFS) ──
   await bus.subscribe(
     EventSubjects.SourceRegistered,
     "discovery",
@@ -33,32 +71,68 @@ async function main() {
       const [source] = await db.select().from(sources).where(eq(sources.id, event.payload.sourceId)).limit(1);
       if (!source || source.status !== "active") return;
 
-      const policy = source.crawlPolicy as { entrypoints: string[]; urlPatterns: string[] };
+      const policy = source.crawlPolicy as CrawlPolicy;
       const patterns = policy.urlPatterns.map((p) => new RegExp(p));
-      const domains = (source.domains as string[]) ?? [];
+      await redis.del(`bfs:pages:${source.id}`); // свіжий бюджет обходу на (ре)реєстрацію
 
       for (const entry of policy.entrypoints) {
-        // sitemap (≈80% виробників), інакше — каталожний BFS із класифікатором сторінок
-        const urls = entry.endsWith(".xml") ? await parseSitemap(entry) : await crawlCatalog(entry, patterns, domains);
-        for (const url of urls) {
-          if (!patterns.some((r) => r.test(url))) continue;
-          // дедуп per-source
-          const isNew = await redis.sadd(`seen:${source.id}`, url);
-          if (!isNew) continue;
-
-          await db
-            .insert(crawlTasks)
-            .values({ sourceId: source.id, url, priority: 0, status: "queued" })
-            .onConflictDoNothing();
-
-          await bus.publish(EventSubjects.UrlDiscovered, {
-            id: idFor(url), subject: EventSubjects.UrlDiscovered, traceId: idFor(url),
-            occurredAt: new Date().toISOString(),
-            payload: { sourceId: source.id, url, priority: 0 },
+        if (entry.endsWith(".xml") || entry.endsWith(".xml.gz")) {
+          const urls = await parseSitemap(entry).catch((e) => {
+            console.warn(`sitemap ${entry}: ${(e as Error).message}`);
+            return [] as string[];
           });
+          for (const url of urls) {
+            if (patterns.some((r) => r.test(url))) await enqueueUrl(source.id, url, "product", 0);
+          }
+        } else {
+          // не-sitemap: каталожна сторінка → обхід через fetcher (kind=listing)
+          await enqueueUrl(source.id, entry, "listing", 0);
         }
       }
       console.log(`discovery done for ${source.name}`);
+    },
+  );
+
+  // ── BFS-крок: каталожну (listing) сторінку завантажив fetcher → дістаємо посилання ──
+  await bus.subscribe(
+    EventSubjects.PageFetched,
+    "discovery-bfs",
+    async (event: EventOf<typeof EventSubjects.PageFetched>) => {
+      if ((event.payload.kind ?? "product") !== "listing") return; // товарні сторінки — не наша справа
+      const { sourceId, snapshotRef, url } = event.payload;
+      const depth = event.payload.depth ?? 0;
+
+      const [snap] = await db
+        .select({ htmlKey: pageSnapshots.htmlKey })
+        .from(pageSnapshots)
+        .where(eq(pageSnapshots.id, snapshotRef))
+        .limit(1);
+      if (!snap?.htmlKey) return;
+      const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
+      if (!source || source.status !== "active") return;
+
+      const policy = source.crawlPolicy as CrawlPolicy;
+      const patterns = policy.urlPatterns.map((p) => new RegExp(p));
+      const domains = (source.domains as string[]) ?? [];
+      const html = await store.getText(snap.htmlKey);
+
+      // Якщо «каталожна» сторінка насправді товарна — екстрактор її вже обробив
+      // детермінованими рівнями; посилання (нав/related) не розкручуємо.
+      if (isProductPage(html)) return;
+
+      const { products, listings } = routeLinks(html, url, patterns, domains, depth, MAX_DEPTH);
+      for (const p of products) await enqueueUrl(sourceId, p, "product", 0);
+
+      // Каталожні — під бюджет (щоб не обходити весь сайт).
+      const budgetKey = `bfs:pages:${sourceId}`;
+      let used = Number(await redis.get(budgetKey)) || 0;
+      for (const l of listings) {
+        if (used >= MAX_BFS_PAGES) break;
+        if (await enqueueUrl(sourceId, l, "listing", depth + 1)) {
+          used = await redis.incr(budgetKey);
+          await redis.expire(budgetKey, BFS_TTL_SEC);
+        }
+      }
     },
   );
 
@@ -72,9 +146,8 @@ async function main() {
 const redirectDispatcher = new Agent().compose(interceptors.redirect({ maxRedirections: 3 }));
 
 /**
- * Завантажує sitemap і повертає сторінкові URL. Підтримує index (рекурсія з guard за
- * глибиною ≤2 і за вже відвіданими), .gz (Content-Encoding або суфікс), UA з контактом.
- * Парсинг XML — чистий `parseSitemapXml`; тут лише I/O.
+ * Завантажує sitemap і повертає сторінкові URL. Index — рекурсія з guard (глибина ≤2 +
+ * відвідані), .gz (Content-Encoding або суфікс), UA з контактом. Парсинг — `parseSitemapXml`.
  */
 async function parseSitemap(url: string, seen = new Set<string>(), depth = 0): Promise<string[]> {
   if (depth > 2 || seen.has(url)) return [];
@@ -98,73 +171,6 @@ async function parseSitemap(url: string, seen = new Set<string>(), depth = 0): P
     return sub.flat();
   }
   return entries.map((e) => e.loc);
-}
-
-/**
- * Каталожний BFS — fallback, коли нема sitemap. Ходить по лістингах у межах домену,
- * збирає товарні URL (за urlPatterns або класифікатором сторінки). Обмежений
- * (maxPages/maxDepth), щоб не обходити весь сайт; ввічливість fetch-у — на fetcher-і.
- */
-async function crawlCatalog(
-  start: string,
-  patterns: RegExp[],
-  domains: string[],
-  opts: { maxPages: number; maxDepth: number } = { maxPages: 60, maxDepth: 3 },
-): Promise<string[]> {
-  const products = new Set<string>();
-  const seen = new Set<string>([start]);
-  let frontier: { url: string; depth: number }[] = [{ url: start, depth: 0 }];
-  let fetched = 0;
-
-  while (frontier.length && fetched < opts.maxPages) {
-    const next: { url: string; depth: number }[] = [];
-    for (const { url, depth } of frontier) {
-      if (fetched >= opts.maxPages) break;
-      fetched++;
-      const html = await fetchText(url).catch(() => "");
-      if (!html) continue;
-      // сама сторінка може бути товарною (класифікатор), навіть якщо URL не за патерном
-      if (patterns.some((r) => r.test(url)) || isProductPage(html)) products.add(url);
-
-      for (const link of extractLinks(html, url)) {
-        if (!sameHost(link, domains) || seen.has(link)) continue;
-        if (patterns.some((r) => r.test(link))) {
-          products.add(link);
-        } else if (depth < opts.maxDepth) {
-          seen.add(link);
-          next.push({ url: link, depth: depth + 1 });
-        }
-      }
-    }
-    frontier = next;
-  }
-  return [...products];
-}
-
-async function fetchText(url: string): Promise<string> {
-  const res = await request(url, { dispatcher: redirectDispatcher });
-  return res.body.text();
-}
-
-function extractLinks(html: string, base: string): string[] {
-  const out: string[] = [];
-  for (const m of html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi)) {
-    try {
-      out.push(new URL(m[1]!, base).toString());
-    } catch {
-      /* невалідний href */
-    }
-  }
-  return out;
-}
-
-function sameHost(url: string, domains: string[]): boolean {
-  try {
-    const host = new URL(url).host.replace(/^www\./, "");
-    return domains.some((d) => host === d.replace(/^www\./, ""));
-  } catch {
-    return false;
-  }
 }
 
 function idFor(seed: string): string {

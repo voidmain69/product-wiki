@@ -293,6 +293,9 @@ importers:
       '@wiki/events':
         specifier: workspace:*
         version: link:../../packages/events
+      '@wiki/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)

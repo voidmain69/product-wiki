@@ -38,18 +38,32 @@ export const SourceRegistered = envelope(
   z.object({ sourceId: Id }),
 );
 
+/**
+ * BFS-обхід каталогу: `kind` розрізняє ціль. `product` (деф. у консюмерів) — сторінка
+ * товару, йде в екстракцію; `listing` — каталожна сторінка, з якої discovery дістає
+ * посилання (екстрактор пропускає LLM-рівень). `depth` — глибина BFS для обмеження обходу.
+ * Обидва optional (BC зі старими подіями); publisher ставить лише для listing.
+ */
 export const UrlDiscovered = envelope(
   EventSubjects.UrlDiscovered,
   z.object({
     sourceId: Id,
     url: z.string().url(),
     priority: z.number().int().default(0), // вищий = раніше (нове/популярне)
+    kind: z.enum(["product", "listing"]).optional(),
+    depth: z.number().int().optional(),
   }),
 );
 
 export const PageFetched = envelope(
   EventSubjects.PageFetched,
-  z.object({ sourceId: Id, snapshotRef: z.string(), url: z.string().url() }),
+  z.object({
+    sourceId: Id,
+    snapshotRef: z.string(),
+    url: z.string().url(),
+    kind: z.enum(["product", "listing"]).optional(),
+    depth: z.number().int().optional(),
+  }),
 );
 
 export const PageUnchanged = envelope(
