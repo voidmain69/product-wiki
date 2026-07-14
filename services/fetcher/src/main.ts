@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import Redis from "ioredis";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { createDb, pageSnapshots, sources, outbox } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
 import { AdapterRegistry } from "@wiki/engine-adapters";
@@ -60,12 +60,13 @@ async function main() {
         userAgent: USER_AGENT,
       });
 
-      // 2. Skip незмінених сторінок за contentHash
+      // 2. Skip незмінених сторінок за contentHash — порівнюємо з НАЙСВІЖІШИМ снапшотом
+      // (desc), інакше зміна A→B→… лишала б порівняння проти найстарішого й писала дублі.
       const prev = await db
         .select({ hash: pageSnapshots.contentHash })
         .from(pageSnapshots)
         .where(eq(pageSnapshots.url, url))
-        .orderBy(pageSnapshots.fetchedAt)
+        .orderBy(desc(pageSnapshots.fetchedAt))
         .limit(1);
       if (prev[0]?.hash === result.snapshot.contentHash) {
         await bus.publish(EventSubjects.PageUnchanged, {

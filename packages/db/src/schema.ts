@@ -11,6 +11,7 @@ import {
   uuid,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -267,10 +268,32 @@ export const chatQueries = pgTable("chat_queries", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/* ─────────────────────────── Page freshness (recrawl tracking) ─────────────────────────── */
+
+// last_seen_at рухається при КОЖНОМУ візиті (навіть unchanged), тоді як page_snapshots
+// immutable і фіксують лише ЗМІНИ контенту. Scheduler бере GREATEST(остання зміна,
+// останній візит) < cutoff, щоб НЕ перезбирати незмінені сторінки щотіка (інакше
+// fetched_at застигає на останній зміні → сторінка «вічно застаріла»). Окрема таблиця —
+// бо снапшоти append-only й не оновлюються (інваріант 4).
+export const pageFreshness = pgTable(
+  "page_freshness",
+  {
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id),
+    url: text("url").notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.sourceId, t.url] }),
+  }),
+);
+
 export const schema = {
   sources,
   crawlTasks,
   pageSnapshots,
+  pageFreshness,
   productDrafts,
   categories,
   attributeOntology,
