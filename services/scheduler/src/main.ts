@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { createDb, sources, pageSnapshots, productDrafts, chatQueries } from "@wiki/db";
+import { createDb, sources, pageSnapshots, pageFreshness, productDrafts, chatQueries } from "@wiki/db";
 import { EventBus, EventSubjects } from "@wiki/events";
-import { eq, sql, desc, inArray } from "drizzle-orm";
+import type { EventOf } from "@wiki/contracts/events";
+import { and, eq, sql, desc, inArray } from "drizzle-orm";
 
 /**
  * Scheduler-воркер: recrawl-хвилі за crawlPolicy.recrawlIntervalDays + попит із чату.
@@ -29,13 +30,22 @@ async function main() {
       const policy = s.crawlPolicy as { recrawlIntervalDays?: number };
       const cutoff = new Date(Date.now() - (policy.recrawlIntervalDays ?? 30) * 86_400_000);
 
-      // 1) застарілі: остання версія URL старіша за cutoff
+      // 1) застарілі: остання АКТИВНІСТЬ по URL старіша за cutoff. Активність =
+      // GREATEST(остання зміна контенту, останній візит). page_snapshots фіксують лише
+      // зміни (immutable), тож незмінені сторінки мали б «застиглий» fetched_at і
+      // перевибирались щотіка — last_seen_at із page_freshness рухається на КОЖному візиті.
       const stale = await db
         .select({ url: pageSnapshots.url })
         .from(pageSnapshots)
+        .leftJoin(
+          pageFreshness,
+          and(eq(pageFreshness.sourceId, pageSnapshots.sourceId), eq(pageFreshness.url, pageSnapshots.url)),
+        )
         .where(eq(pageSnapshots.sourceId, s.id))
-        .groupBy(pageSnapshots.url)
-        .having(sql`max(${pageSnapshots.fetchedAt}) < ${cutoff}`)
+        .groupBy(pageSnapshots.url, pageFreshness.lastSeenAt)
+        .having(
+          sql`greatest(max(${pageSnapshots.fetchedAt}), coalesce(${pageFreshness.lastSeenAt}, 'epoch'::timestamptz)) < ${cutoff}`,
+        )
         .limit(50);
 
       // 2) популярні за попитом чату — свіжими незалежно від інтервалу
@@ -61,10 +71,19 @@ async function main() {
     }
   };
 
-  await bus.subscribe(EventSubjects.PageUnchanged, "scheduler", async (event) => {
-    // hash збігся — просто оновлюємо last_seen (тут лог)
-    console.log(`unchanged: ${event.payload.url}`);
-  });
+  await bus.subscribe(
+    EventSubjects.PageUnchanged,
+    "scheduler",
+    async (event: EventOf<typeof EventSubjects.PageUnchanged>) => {
+      // hash збігся — фіксуємо «востаннє бачили», щоб recrawl не перевибирав цей URL
+      // щотіка (fetched_at застиг на останній зміні). Ідемпотентно (at-least-once).
+      const { sourceId, url } = event.payload;
+      await db
+        .insert(pageFreshness)
+        .values({ sourceId, url })
+        .onConflictDoUpdate({ target: [pageFreshness.sourceId, pageFreshness.url], set: { lastSeenAt: new Date() } });
+    },
+  );
 
   setInterval(() => void tick().catch(console.error), RECRAWL_TICK_MS);
   console.log("scheduler: recrawl tick every 1h");
