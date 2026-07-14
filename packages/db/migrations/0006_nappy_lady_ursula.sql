@@ -1,0 +1,1 @@
+ALTER TABLE "chat_queries" ADD COLUMN "faithfulness" double precision;

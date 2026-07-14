@@ -265,6 +265,9 @@ export const chatQueries = pgTable("chat_queries", {
   queryText: text("query_text").notNull(),
   matchedProductIds: jsonb("matched_product_ids").$type<string[]>().default([]),
   noResults: boolean("no_results").notNull().default(false), // куди розширювати каталог
+  // faithfulness-score відповіді (частка заземлених у контексті чисел, 0..1); null — не рахували
+  // (compare/out_of_scope/no_results). Сигнал інваріанта 7 «чат не вигадує».
+  faithfulness: doublePrecision("faithfulness"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
