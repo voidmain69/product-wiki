@@ -1,6 +1,11 @@
 # Dependabot: version updates для всіх екосистем монорепо.
 # Конфіг читається з default-гілки (main); version-update PR-и йдуть у develop
 # згідно з git-конвенціями проєкту. Security-оновлення GitHub завжди таргетить main.
+#
+# cooldown — захист від supply-chain атак (hijack maintainer-акаунта, malicious
+# publish): свіжа версія має «відлежатися» N днів перед тим, як Dependabot
+# запропонує оновлення — за цей час компрометацію зазвичай виявляють і version
+# yank-ають. Security-оновлення cooldown НЕ стримує (і не повинен).
 version: 2
 updates:
   # pnpm-монорепо: один запис на корінь — Dependabot читає pnpm-lock.yaml
@@ -14,6 +19,11 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
     groups:
       npm-minor-patch:
         update-types: ["minor", "patch"]
@@ -27,6 +37,11 @@ updates:
     target-branch: "develop"
     commit-message:
       prefix: "chore(deps-ml)"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
     groups:
       python-minor-patch:
         update-types: ["minor", "patch"]
@@ -40,3 +55,7 @@ updates:
     target-branch: "develop"
     commit-message:
       prefix: "chore(ci)"
+    # Для actions семантика semver-* не завжди застосовна (теги v4 → v5),
+    # тому одна консервативна затримка.
+    cooldown:
+      default-days: 14
