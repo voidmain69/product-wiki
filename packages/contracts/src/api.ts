@@ -133,6 +133,9 @@ export const DemandReport = z.object({
   total: z.number().int().nonnegative(), // усіх запитів за період
   noResultsTotal: z.number().int().nonnegative(),
   noResultsShare: z.number(), // 0..1
+  // середній faithfulness відповідей за період (заземленість чисел, інваріант 7); null —
+  // жодної оціненої відповіді (лише compare/no_results/out_of_scope).
+  avgFaithfulness: z.number().nullable(),
   topNoResults: z.array(DemandItem), // найчастіші «не знаю» → чого бракує
   topMatched: z.array(DemandItem), // найпопулярніші зі знайденим
 });
