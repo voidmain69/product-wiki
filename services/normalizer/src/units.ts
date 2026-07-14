@@ -73,7 +73,16 @@ const TO_SI: Record<string, { unit: string; factor: number }> = {
   "°": { unit: "°", factor: 1 }, deg: { unit: "°", factor: 1 }, град: { unit: "°", factor: 1 },
   // спец-одиниці без конверсії (щоб число не втрачало одиницю): роздільність / оберти
   dpi: { unit: "dpi", factor: 1 }, rpm: { unit: "rpm", factor: 1 },
-  // TODO: температура °C/°F — афінна конверсія (не factor-модель), окремим етапом
+};
+
+/**
+ * Температура — АФІННА конверсія (зсув + масштаб), не factor-модель: °F → °C = (F−32)/1.8.
+ * Канонічна одиниця °C. Токени лише з градусом (°c/°f/℃/℉), щоб голі «c»/«f» не хапали
+ * випадкові рядки. Одиничні температури рідкі (діапазони «-10…40°C» лишаються рядком).
+ */
+const AFFINE: Record<string, { unit: string; f: (n: number) => number }> = {
+  "°c": { unit: "°C", f: (n) => n },
+  "°f": { unit: "°C", f: (n) => (n - 32) / 1.8 },
 };
 
 // Булеве — ТОЧНИЙ збіг слова (JS `\b` не працює з кирилицею), щоб «Німеччина» ≠ «Ні».
@@ -97,7 +106,8 @@ function decodeEntities(s: string): string {
 }
 
 export function normalizeValue(raw: string, unitHint?: string): Normalized {
-  const s = decodeEntities(String(raw)).trim();
+  // ℃/℉ (єдині символи) → °C/°F, щоб їх ловив звичайний токен-клас SCALAR.
+  const s = decodeEntities(String(raw)).replace(/℃/g, "°C").replace(/℉/g, "°F").trim();
   if (!s) return { value: raw, unit: null };
 
   if (s.length <= 24) {
@@ -122,6 +132,8 @@ export function normalizeValue(raw: string, unitHint?: string): Normalized {
 
   // юніт з рядка має пріоритет над хінтом ключа; хінт — лише для «голого» числа
   if (token) {
+    const aff = AFFINE[token];
+    if (aff) return { value: round(aff.f(num)), unit: aff.unit };
     const conv = TO_SI[token];
     return conv
       ? { value: round(num * conv.factor), unit: conv.unit }
