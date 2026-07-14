@@ -13,6 +13,7 @@ import {
 import { EventBus, EventSubjects } from "@wiki/events";
 import type { EventOf } from "@wiki/contracts/events";
 import { normalizeBrand, normalizeCategoryPath } from "./taxonomy.js";
+import { resolveAttrs } from "./snapshot-attrs.js";
 
 /**
  * Resolver-воркер: споживає `draft.normalized`, робить entity resolution
@@ -309,18 +310,21 @@ async function buildSnapshot(tx: DbOrTx, productId: string) {
         .where(inArray(pageSnapshots.id, snapIds))
     : [];
 
+  // Мультиджерельний конфлікт (інваріант 5): один attr_key із кількох джерел — беремо
+  // найсвіжіше значення, provenance (усі URL) лишаються в `sources`. Розбіжності логуємо.
+  const snapDate = new Map(snaps.map((s) => [s.id, s.fetchedAt]));
+  const { attributes, conflicts } = resolveAttrs(attrs, snapDate);
+  if (conflicts > 0) {
+    console.warn(`resolver: ${conflicts} attr-конфлікт(ів) між джерелами для ${productId} — узято найсвіжіше`);
+  }
+
   return {
     id: productId,
     brand: p?.brand,
     name: p?.name,
     categoryPath: [] as string[],
     media: [] as { type: string; url: string }[],
-    attributes: attrs.map((a) => ({
-      key: a.attrKey,
-      valueCanonical: a.valueCanonical,
-      unitCanonical: a.unitCanonical,
-      valueRaw: a.valueRaw,
-    })),
+    attributes,
     texts: texts.map((t) => ({ section: t.section, text: t.text, lang: t.lang })),
     sources: snaps.map((s) => ({
       sourceId: s.sourceId,

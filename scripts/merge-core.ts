@@ -17,6 +17,7 @@ import {
 import type { EventBus} from "@wiki/events";
 import { EventSubjects } from "@wiki/events";
 import type { QdrantIndex } from "@wiki/retrieval";
+import { resolveAttrs } from "../services/resolver/src/snapshot-attrs.js";
 
 export type Db = ReturnType<typeof createDb>;
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -115,14 +116,8 @@ export async function buildSnapshot(tx: DbOrTx, productId: string) {
     ? await tx.select({ id: pageSnapshots.id, url: pageSnapshots.url, sourceId: pageSnapshots.sourceId, fetchedAt: pageSnapshots.fetchedAt }).from(pageSnapshots).where(inArray(pageSnapshots.id, snapIds))
     : [];
   const snapDate = new Map(snaps.map((s) => [s.id, s.fetchedAt]));
-
-  const byKey = new Map<string, (typeof attrs)[number]>();
-  for (const a of attrs) {
-    const prev = byKey.get(a.attrKey);
-    if (!prev || (snapDate.get(a.sourceSnapshotId) ?? new Date(0)) > (snapDate.get(prev.sourceSnapshotId) ?? new Date(0))) {
-      byKey.set(a.attrKey, a);
-    }
-  }
+  // Єдина політика конфлікту атрибутів (спільна з resolver): найсвіжіше значення на ключ.
+  const { attributes } = resolveAttrs(attrs, snapDate);
 
   return {
     id: productId,
@@ -130,7 +125,7 @@ export async function buildSnapshot(tx: DbOrTx, productId: string) {
     name: p?.name,
     categoryPath: [] as string[],
     media: [] as { type: string; url: string }[],
-    attributes: [...byKey.values()].map((a) => ({ key: a.attrKey, valueCanonical: a.valueCanonical, unitCanonical: a.unitCanonical, valueRaw: a.valueRaw })),
+    attributes,
     texts: texts.map((t) => ({ section: t.section, text: t.text, lang: t.lang })),
     sources: snaps.map((s) => ({ sourceId: s.sourceId, snapshotRef: s.id, url: s.url, fetchedAt: s.fetchedAt.toISOString() })),
   };
