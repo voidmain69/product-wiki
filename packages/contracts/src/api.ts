@@ -117,6 +117,27 @@ export const ProductFacets = z.object({
 });
 export type ProductFacets = z.infer<typeof ProductFacets>;
 
+/**
+ * Аналітика попиту (сигнал куди розширювати каталог). `no_results` — запити, на які чат
+ * чесно відповів «не знаю» (немає даних): це пріоритети для нових джерел / докраулу.
+ */
+export const DemandItem = z.object({
+  queryText: z.string(),
+  count: z.number().int().nonnegative(),
+  lastAt: z.string(), // ISO дата останнього такого запиту
+});
+export type DemandItem = z.infer<typeof DemandItem>;
+
+export const DemandReport = z.object({
+  periodDays: z.number().int().positive(),
+  total: z.number().int().nonnegative(), // усіх запитів за період
+  noResultsTotal: z.number().int().nonnegative(),
+  noResultsShare: z.number(), // 0..1
+  topNoResults: z.array(DemandItem), // найчастіші «не знаю» → чого бракує
+  topMatched: z.array(DemandItem), // найпопулярніші зі знайденим
+});
+export type DemandReport = z.infer<typeof DemandReport>;
+
 /** Атрибут з provenance — кожна цифра знає своє першоджерело (інваріант 5). */
 export const ProductDetailAttribute = z.object({
   key: z.string(),
