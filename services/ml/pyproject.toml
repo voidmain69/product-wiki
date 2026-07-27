@@ -5,7 +5,7 @@ description = "Embedding (BGE-M3) + rerank (bge-reranker-v2-m3) inference servic
 requires-python = ">=3.10"
 # Базові залежності — легкі; вистачає для dev-режиму (ML_DEV_MODE=1) без torch.
 dependencies = [
-    "fastapi>=0.115",
+    "fastapi>=0.139.2",
     "uvicorn[standard]>=0.51.0",
     "numpy>=1.26",
     "pydantic>=2.0",
