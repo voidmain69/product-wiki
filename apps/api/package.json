@@ -17,14 +17,14 @@
     "@wiki/retrieval": "workspace:*",
     "@wiki/chat-orchestrator": "workspace:*",
     "@fastify/cors": "^11.3.0",
-    "@fastify/rate-limit": "^11.1.0",
+    "@fastify/rate-limit": "^11.2.0",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.0.0",
+    "fastify": "^5.11.2",
     "ioredis": "^5.4.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "tsx": "^4.19.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.6.0",
     "rimraf": "^6.0.1"
   }
