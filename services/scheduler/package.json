@@ -13,11 +13,11 @@
     "@wiki/contracts": "workspace:*",
     "@wiki/db": "workspace:*",
     "@wiki/events": "workspace:*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "ioredis": "^5.4.1"
   },
   "devDependencies": {
-    "tsx": "^4.19.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.0",
     "rimraf": "^6.0.1"
   }
